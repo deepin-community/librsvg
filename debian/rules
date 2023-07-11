@@ -1,4 +1,88 @@
 #!/usr/bin/make -f
 
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DEB_LDFLAGS_MAINT_APPEND = -Wl,-O1 -Wl,-z,defs
+export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+NULL =
+built_binaries := $(shell dh_listpackages)
+configure_flags :=
+
+# Increase reftest tolerance a bit to account for different harfbuzz,
+# pango, etc.
+export RSVG_TEST_TOLERANCE=20
+
+ifeq ($(filter %-doc,$(built_binaries)),)
+configure_flags += GI_DOCGEN=no
+endif
+
+ifneq (,$(filter nodoc,$(DEB_BUILD_PROFILES)))
+configure_flags += RST2MAN=no
+endif
+
 %:
 	dh $@
+
+override_dh_autoreconf:
+	dh_autoreconf --as-needed
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	cp -a debian/a-link-purple-bg.png tests/fixtures/cmdline/a-link-purple-bg.png
+	# We removed the source code of these packages to reduce the amount
+	# of vendored code to review, but cargo will report errors if there
+	# isn't at least a stub there
+	set -e; for package in js-sys web-sys windows-sys; do \
+		mkdir -p vendor/$$package/src; \
+		touch vendor/$$package/src/lib.rs; \
+	done
+	dh_auto_configure -- \
+		--enable-pixbuf-loader \
+		--enable-installed-tests \
+		--enable-introspection \
+		--enable-vala \
+		GDK_PIXBUF_QUERYLOADERS=/usr/lib/$(DEB_HOST_MULTIARCH)/gdk-pixbuf-2.0/gdk-pixbuf-query-loaders \
+		$(configure_flags) \
+		$(NULL)
+
+override_dh_install:
+	find debian/tmp -name '*.a' -print -delete
+	find debian/tmp -name '*.la' -print -delete
+	rm -f debian/tmp/usr/bin/rsvg-view-3
+	dh_install
+	sed -e "s/#MULTIARCH#/$(DEB_HOST_MULTIARCH)/g" debian/librsvg2-common.postinst.in > \
+		debian/librsvg2-common.postinst
+
+override_dh_installchangelogs:
+	dh_installchangelogs -XChangeLog
+
+override_dh_clean:
+	dh_clean -X.bak
+	rm -fr $(CARGO_HOME)
+ifneq ($(filter i386,$(DEB_HOST_ARCH_CPU)),)
+	rm -f tests/fixtures/reftests/svg1.1/filters-composite-02-b.svg
+	rm -f tests/fixtures/reftests/svg1.1/filters-composite-02-b-ref.png
+endif
+	rm -f tests/fixtures/reftests/bugs/730-font-scaling-ref.png
+	rm -f tests/fixtures/reftests/bugs/730-font-scaling.svg
+	rm -f tests/fixtures/reftests/svg1.1/text-text-03-b-ref.png
+	rm -f tests/fixtures/reftests/svg1.1/text-text-03-b.svg
+
+override_dh_auto_test-arch:
+ifeq (,$(filter nocheck,$(DEB_BUILD_OPTIONS)))
+	mkdir -p $(CURDIR)/debian/locales
+	localedef -i en_US -f UTF-8 $(CURDIR)/debian/locales/en
+	localedef -i en_US -f UTF-8 $(CURDIR)/debian/locales/en_US
+	localedef -i de_DE -f UTF-8 $(CURDIR)/debian/locales/de
+	failed=0; \
+	LOCPATH=$(CURDIR)/debian/locales dh_auto_test || failed=1; \
+	find debian -name '*.log' \
+		-not -name config.log \
+		-not -name test-suite.log \
+		-print0 | xargs -0 tail -v -c1M; \
+	debian/log-reftests.py; \
+	exit $$failed
+endif
+
+override_dh_auto_test-indep:
+	@:
