@@ -1,3 +1,30 @@
+librsvg (2.54.7+dfsg-2) unstable; urgency=medium
+
+  * Cherry-pick unstable-options patch to fix build with newer rustc
+  * Set upstream metadata field Security-Contact
+  * debian/control.in: Update Build-Depends: libfreetype6-dev -> libfreetype-dev
+  * Update standards version to 4.6.2, no changes needed
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 14 Aug 2023 14:10:15 -0400
+
+librsvg (2.54.7+dfsg-1) unstable; urgency=high
+
+  * Team upload
+  * New upstream stable release 2.54.6
+    - Fix a directory traversal vulnerability
+      (Closes: #1041810, CVE-2023-38633)
+    - Drop a redundant test-case that frequently regressed as a result of
+      non-problematic font rendering changes
+  * New upstream stable release 2.54.7
+    - Fix compilation of 2.54.6 on rustc < 1.58
+  * d/rules: Skip several known-failing reftests on big-endian architectures.
+    These succeeded when librsvg_2.54.5+dfsg-1 was uploaded in September
+    2022, but regressed sometime between then and the bookworm release,
+    presumably as a result of changes in some other package.
+    (Mitigates: #1038447)
+
+ -- Simon McVittie <smcv@debian.org>  Sun, 30 Jul 2023 15:13:38 +0100
+
 librsvg (2.54.5+dfsg-3) unstable; urgency=medium
 
   * Team upload

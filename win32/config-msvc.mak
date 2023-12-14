@@ -5,7 +5,7 @@ OUTDIR = vs$(VSVER)\$(CFG)\$(PLAT)
 RSVG_VER = 2
 RSVG_API_VER = $(RSVG_VER).0
 CHECK_GIR_PACKAGE = gdk-pixbuf-2.0
-RSVG_PKG_VERSION = 2.54.5
+RSVG_PKG_VERSION = 2.54.7
 
 # Make bin, include and library directories of configurable
 !ifndef BINDIR

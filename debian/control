@@ -6,14 +6,14 @@ Source: librsvg
 Section: libs
 Priority: optional
 Maintainer: Debian GNOME Maintainers <pkg-gnome-maintainers@lists.alioth.debian.org>
-Uploaders: Emilio Pozuelo Monfort <pochu@debian.org>, Jeremy Bicha <jbicha@ubuntu.com>, Laurent Bigonville <bigon@debian.org>, Michael Biebl <biebl@debian.org>, Tim Lunn <tim@feathertop.org>
+Uploaders: Emilio Pozuelo Monfort <pochu@debian.org>, Iain Lane <laney@debian.org>, Laurent Bigonville <bigon@debian.org>, Michael Biebl <biebl@debian.org>, Tim Lunn <tim@feathertop.org>
 Build-Depends: debhelper-compat (= 13),
                cargo,
                dh-sequence-gir,
                dh-sequence-gnome,
                jq,
                libcairo2-dev (>= 1.2.0),
-               libfreetype6-dev (>= 2.8.0),
+               libfreetype-dev (>= 2.8.0),
                libgdk-pixbuf-2.0-dev (>= 2.23.5-2),
                libgirepository1.0-dev (>= 0.10.8),
                libglib2.0-dev (>= 2.50.0),
@@ -26,7 +26,7 @@ Build-Depends: debhelper-compat (= 13),
                valac (>= 0.17.5)
 Build-Depends-Indep: gi-docgen <!nodoc>,
 Rules-Requires-Root: no
-Standards-Version: 4.6.0
+Standards-Version: 4.6.2
 Vcs-Browser: https://salsa.debian.org/gnome-team/librsvg
 Vcs-Git: https://salsa.debian.org/gnome-team/librsvg.git
 Homepage: https://wiki.gnome.org/Projects/LibRsvg

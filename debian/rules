@@ -63,6 +63,37 @@ ifneq ($(filter i386,$(DEB_HOST_ARCH_CPU)),)
 	rm -f tests/fixtures/reftests/svg1.1/filters-composite-02-b.svg
 	rm -f tests/fixtures/reftests/svg1.1/filters-composite-02-b-ref.png
 endif
+ifeq ($(DEB_HOST_ARCH_ENDIAN),big)
+	# Several tests regressed on big-endian architectures sometime between
+	# September 2022 and June 2023 as a result of changes in some other
+	# package.
+	# https://bugs.debian.org/1038447, GNOME/librsvg#972
+	rm -f tests/fixtures/reftests/svg1.1/coords-viewattr-02-b.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#973
+	rm -f tests/fixtures/reftests/filter-kernel-unit-length.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#974
+	rm -f tests/fixtures/reftests/svg1.1/filters-composite-04-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#975
+	rm -f tests/fixtures/reftests/svg1.1/filters-conv-02-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#976
+	rm -f tests/fixtures/reftests/svg1.1/filters-conv-03-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#977
+	rm -f tests/fixtures/reftests/svg1.1/filters-conv-04-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#978
+	rm -f tests/fixtures/reftests/svg1.1/filters-image-01-b.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#979
+	rm -f tests/fixtures/reftests/svg1.1/filters-image-02-b.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#980
+	rm -f tests/fixtures/reftests/svg1.1/filters-image-03-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#981
+	rm -f tests/fixtures/reftests/svg1.1/filters-image-05-f.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#982
+	rm -f tests/fixtures/reftests/svg1.1/pservers-grad-05-b.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#983
+	rm -f tests/fixtures/reftests/svg1.1/pservers-grad-06-b.svg
+	# https://bugs.debian.org/1038447, GNOME/librsvg#984
+	rm -f tests/fixtures/reftests/svg1.1/struct-symbol-01-b.svg
+endif
 	rm -f tests/fixtures/reftests/bugs/730-font-scaling-ref.png
 	rm -f tests/fixtures/reftests/bugs/730-font-scaling.svg
 	rm -f tests/fixtures/reftests/svg1.1/text-text-03-b-ref.png
