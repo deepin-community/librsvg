@@ -1,3 +1,9 @@
+librsvg (2.54.7+dfsg-2deepin1) unstable; urgency=medium
+
+  * Add loong64 support.
+
+ -- LiChengGang <lichenggang@uniontech.com>  Thu, 14 Dec 2023 14:24:19 +0800
+
 librsvg (2.54.7+dfsg-2) unstable; urgency=medium
 
   * Cherry-pick unstable-options patch to fix build with newer rustc
