@@ -25,7 +25,7 @@ $<
 $<
 <<
 
-{..\tests\}.c{$(OUTDIR)\rsvg-tests\}.obj:
+{..\librsvg-c\tests-c\}.c{$(OUTDIR)\rsvg-tests\}.obj:
 	@if not exist $(@D)\ mkdir $(@D)
 	@if not exist $(@D)\..\librsvg\config.h copy .\config.h.win32 $(@D)\..\librsvg\config.h
 	$(CC) $(TEST_CFLAGS) $(LIBRSVG_LOG_DOMAIN) $(TOOLS_DEP_INCLUDES) /Fo$(@D)\ /Fd$(@D)\ /c @<<
@@ -42,8 +42,9 @@ $(LIBRSVG_LIB): $(LIBRSVG_DLL)
 # $(dependent_objects)
 # <<
 # 	@-if exist $@.manifest mt /manifest $@.manifest /outputresource:$@;2
+
 $(LIBRSVG_DLL): $(RSVG_INTERNAL_LIB) $(librsvg_OBJS) $(LIBRSVG_DEF)
-	link /DLL $(LDFLAGS) $(LIBRSVG_DEP_LIBS)	\
+	link /DLL $(LDFLAGS) $(LIBRSVG_DEP_LIBS) $(LIBRSVG_SYSTEM_DEP_LIBS)	\
 	/implib:$(LIBRSVG_LIB)	\
 	-out:$@ /def:$(LIBRSVG_DEF) @<<
 $(librsvg_OBJS)
@@ -64,9 +65,9 @@ $(OUTDIR)\rsvg-gdk-pixbuf-loader\io-svg.obj
 # <<
 # 	@-if exist $@.manifest mt /manifest $@.manifest /outputresource:$@;1
 $(OUTDIR)\rsvg-convert.exe:	\
-vs$(VSVER)\$(CFG)\$(PLAT)\obj\rsvg_c_api\$(RUST_TARGET)-pc-windows-msvc\$(CFG)\rsvg-convert.exe
-	@copy /b $** $@
-	@if exist $(**D)\rsvg_convert.pdb copy /b $(**D)\rsvg_convert.pdb $(@D)
+$(CARGO_TARGET_OUTPUT_DIR)\rsvg-convert.exe
+	copy /b $** $@
+	if exist $(**D)\rsvg_convert.pdb copy /b $(**D)\rsvg_convert.pdb $(@D)
 
 # Include the rules for the test programs
 !include rsvg_tests_rules.mak
@@ -79,7 +80,8 @@ $(rsvg_tests):
 	@-if exist $@.manifest mt /manifest $@.manifest /outputresource:$@;1
 
 !ifdef INTROSPECTION
-$(OUTDIR)\Rsvg-$(RSVG_API_VER).gir: $(LIBRSVG_LIB) $(OUTDIR)\librsvg\Rsvg_2_0_gir_list
+
+$(OUTDIR)\Rsvg-$(RSVG_API_VER).gir: $(LIBRSVG_LIB) $(OUTDIR)\librsvg\Rsvg_2_0_gir_list warn-appstore-python
 	@-echo Generating $@...
 	@set PATH=$(BINDIR);$(PATH)
 	$(PYTHON) $(G_IR_SCANNER)	\
@@ -134,6 +136,6 @@ clean:
 	@-rmdir /s /q $(OUTDIR)\rsvg-tests
 	@-rmdir /s /q $(OUTDIR)\rsvg-gdk-pixbuf-loader
 	@-rmdir /s /q $(OUTDIR)\librsvg
-	$(MAKE) /f rsvg-rust.mak CFG=$(CFG) cargo-clean
+	$(MAKE) /f rsvg-rust.mak CFG=$(CFG) RSVG_INTERNAL_LIB=$(RSVG_INTERNAL_LIB) cargo-clean
 	@-rmdir /s /q $(OUTDIR)\obj
 	@-del build-$(PLAT)-$(CFG)*.bat

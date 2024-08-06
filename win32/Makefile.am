@@ -14,7 +14,9 @@ EXTRA_DIST = \
 	librsvg.symbols	\
 	Makefile.vc		\
 	MSVC-Builds.md		\
+	python-config.mak	\
 	rsvg-rust.mak		\
+	rust-query-cfg.bat	\
 	pc_base.py		\
 	replace.py		\
 	rsvgpc.py

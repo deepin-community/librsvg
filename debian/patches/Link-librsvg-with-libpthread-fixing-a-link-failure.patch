@@ -2,15 +2,18 @@ From: Simon McVittie <smcv@debian.org>
 Date: Mon, 3 Jan 2022 15:59:02 +0000
 Subject: Link librsvg with libpthread, fixing a link failure
 
+TODO: We can probably drop this now that we have glibc 2.34, which
+integrates libpthread into libc; but keep it for now to avoid any risk
+of further disruption to the 64-bit time_t transition.
 ---
  Makefile.am | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/Makefile.am b/Makefile.am
-index a491579..60e51ca 100644
+index 19ab816..4e998dc 100644
 --- a/Makefile.am
 +++ b/Makefile.am
-@@ -209,6 +209,7 @@ librsvg_@RSVG_API_MAJOR_VERSION@_la_LIBADD = \
+@@ -247,6 +247,7 @@ librsvg_@RSVG_API_MAJOR_VERSION@_la_LIBADD = \
  	$(LIBRSVG_LIBS) 	\
  	$(LIBM)			\
  	$(DLOPEN_LIBS)

@@ -63,6 +63,8 @@ BASE_DEP_INCLUDES =			\
 	/I$(INCLUDEDIR)\glib-2.0	\
 	/I$(LIBDIR)\glib-2.0\include	\
 	/I$(INCLUDEDIR)\harfbuzz	\
+	/I$(INCLUDEDIR)\freetype2	\
+	/I$(INCLUDEDIR)\cairo	\
 	/I$(INCLUDEDIR)
 
 BASE_DEP_LIBS =			\
@@ -92,7 +94,7 @@ LIBRSVG_INCLUDES =			\
 	/I$(INCLUDEDIR)\libxml2
 
 TEST_CFLAGS = $(BASE_CFLAGS)
-TEST_DEP_LIBS = pango-1.0.lib harfbuzz.lib freetype.lib $(TOOLS_DEP_LIBS)
+TEST_DEP_LIBS = pango-1.0.lib $(HARFBUZZ_LIB) $(FREETYPE_LIB) $(TOOLS_DEP_LIBS)
 
 # Use PangoFT2 (for tests only)
 !ifdef USE_PANGOFT2
@@ -106,7 +108,7 @@ TEST_DEP_LIBS =	\
 	fontconfig.lib
 !endif
 
-RSVG_INTERNAL_LIB = $(OUTDIR)\obj\rsvg_c_api\$(RUST_TARGET)-pc-windows-msvc\$(CFG)\librsvg.lib
+RSVG_INTERNAL_LIB = $(CARGO_TARGET_OUTPUT_DIR)\librsvg_c.lib
 
 LIBRSVG_DEP_LIBS =			\
 	$(RSVG_INTERNAL_LIB)		\
@@ -114,12 +116,7 @@ LIBRSVG_DEP_LIBS =			\
 	$(LIBRSVG_EXTRA_DEP_LIBS)	\
 	pango-1.0.lib			\
 	cairo-gobject.lib		\
-	$(BASE_DEP_LIBS)		\
-	libxml2.lib			\
-	advapi32.lib			\
-	userenv.lib			\
-	bcrypt.lib			\
-	ws2_32.lib
+	$(BASE_DEP_LIBS)
 
 RSVG_PIXBUF_LOADER_CFLAGS =			\
 	$(BASE_CFLAGS)				\

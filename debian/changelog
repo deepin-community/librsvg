@@ -1,8 +1,92 @@
-librsvg (2.54.7+dfsg-2deepin1) unstable; urgency=medium
+librsvg (2.58.0+dfsg-1) unstable; urgency=medium
 
-  * Add loong64 support.
+  [ Jeremy Bícha ]
+  * New upstream release
 
- -- LiChengGang <lichenggang@uniontech.com>  Thu, 14 Dec 2023 14:24:19 +0800
+  [ Simon McVittie ]
+  * d/control: Add ${gir:Depends} to librsvg2-dev
+  * d/control: Add ${gir:Provides} to librsvg2-dev
+  * d/rules: Fix canonicalization of tests permissions
+  * d/copyright: Fix file pattern for d/missing-sources/*
+  * d/copyright: Remove an unused stanza
+  * d/source/lintian-overrides: Silence a warning about non-UTF-8 test data
+  * d/source/lintian-overrides: nogir is a valid build-profile
+  * d/librsvg2-tests.lintian-overrides:
+    Drop unused override for fonts that are no longer bundled
+  * d/librsvg2-tests.lintian-overrides: Silence some false-positives
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 28 Mar 2024 20:58:03 -0400
+
+librsvg (2.57.92+dfsg-2) unstable; urgency=medium
+
+  * Team upload
+  * d/rules: Temporarily disable a reftest that is sensitive to Pango version.
+    (Mitigates: #1065821)
+  * d/patches: Refresh patch series. No functional changes.
+  * d/patches: Update patch metadata, sort by topic
+  * d/log-reftests.py: Update to find more reftest results.
+    In the new source tree layout, some of the reftest results now land
+    in tests/output/.
+  * d/rules: Don't output the binary gvfs metadata log into buildd logs
+  * d/.gitignore, d/source/options: Exclude debian/missing-sources/**/*.a
+    from git commits and uploads
+  * d/rules: Create a missing directory if necessary
+
+ -- Simon McVittie <smcv@debian.org>  Sun, 10 Mar 2024 14:49:33 +0000
+
+librsvg (2.57.92+dfsg-1) unstable; urgency=medium
+
+  * New upstream release
+  * Stop using dh-sequence-gnome
+  * Fix dh_fixperms handling for installed tests
+  * Release to unstable
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sat, 09 Mar 2024 11:05:30 -0500
+
+librsvg (2.57.91+dfsg-2) experimental; urgency=medium
+
+  * debian/patches/skip-broken-reftests.diff:
+    -ignore the svg1_1_filters_conv 02 and 04 tests not only on bigendian
+     architectures, they are also failing on ppc64el
+
+  [ Matthias Geiger ]
+  * Add patch to skip two failing reftests, big-endian specific failures 
+  * Stop using d/control.in and dh_gnome_clean
+  * Build-depend on libgirepository too, bump rustc version acccording
+    to upstream requirements
+
+ -- Sebastien Bacher <seb128@ubuntu.com>  Fri, 01 Mar 2024 10:30:53 +0100
+
+librsvg (2.57.91+dfsg-1) experimental; urgency=medium
+
+  [ Amin Bandali ]
+  * Change debian-branch from debian/master to debian/latest
+  [  Jeremy Bícha ]
+  * debian/watch: Update rule to watch for odd-numbered stable releases
+    too
+  [ Sebastien Bacher]
+  * debian/librsvg2-tests.install:
+    - update the directory where to install the assets to match the
+      new version and fix the autopkgtests
+  [ Matthias Geiger ]
+  * New upstream release
+  * Rebased patches for new upstream
+  * Drop unstable-rustc-options patch; applied upstream
+  * Drop thin-lto.patch, not needed anymore
+  * Updated file paths in d/rules for new upstream
+  * Vendor sources for librsvg into debian/missing-sources
+  * Whitelisted additional binaries caused due to vendoring in
+    d/s/include-binaries
+  * Add use-vendored-crates patch to build with vendored sources
+  * Amend d/rules to get librsvg to build
+  * Exclude files needed for tests from autocleaning
+  * Update install path for librsvg2-tests package
+  * Drop libgirepository1.0-dev dependency, depend on separate gir-* packages
+    with nogir build profile
+  * Remove executable bit for test svg before install
+  * Updated copyright information
+
+ -- Matthias Geiger <werdahias@riseup.net>  Wed, 28 Feb 2024 11:37:29 +0100
 
 librsvg (2.54.7+dfsg-2) unstable; urgency=medium
 

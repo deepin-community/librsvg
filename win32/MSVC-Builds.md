@@ -24,11 +24,18 @@ dependencies:
 
 You will also need the following tools:
 *  Visual Studio 2013 or later, with C/C++ compilation support (MSVC).
-*  The Rust Compiler and tools with the msvc toolchain(s) installed, that
-   matches the architecture that is being built.  It is recommended to use
-   the `rustup` tool from https://www.rust-lang.org/ to install and
-   configure Rust, which will install Rust in `%HOMEPATH%\.cargo` by
-   default.
+*  The Rust Compiler and tools with the msvc toolchain(s) and/or target(s)
+   installed, that matches the architecture that is being built.  It is
+   recommended to use the `rustup` tool from https://www.rust-lang.org/
+   to install and configure Rust, which will install Rust in
+   `%HOMEPATH%\.cargo` by default, which will be the default location that
+   is looked up for the `rustup` and `cargo` tools. If no `TOOLCHAIN_VERSION`
+   is specified (or if you are carrying out a cross-build), you need to
+   ensure that you added the target architecture to your default toolchain
+   via `rustup` if the architecture differs from the toolchain's architure.
+   If `TOOLCHAIN_VERSION` is specified and a cross-build is not carried out,
+   you will need to ensure the corresponding toolchain for the target
+   architecture is installed.
 *  `pkg-config` tool (or something that is compatible, set via
    `PKG_CONFIG` in the NMake command line if cross-compiling, or if in a
    non-standard location).  `PKG_CONFIG_PATH` in the NMake command line is
@@ -70,13 +77,17 @@ It is recommended that the dependent libraries are built with the same
 version of Visual Studio that is being used to build librsvg, as far as
 possible.
 
-If building from a git checkout is desired, you will need to run in this directory (not supported in an unpacked release tarball):
+If building from a git checkout is desired, you will need to run in this
+directory (not supported in an unpacked release tarball) prior to carrying
+out the actual build as mentioned in the next lines:
 ```
 nmake /f generate-msvc.mak generate-nmake-files
 ```
 You may need to pass in `PYTHON=<path_to_python_interpreter>` in the
 NMake command line above if your Python interpreter is not in your
-`%PATH%`.  Run `nmake /f generate-msvc.mak remove-generated-nmake-files`
+`%PATH%`. You will need to run this line again if you changed branches.
+
+Run `nmake /f generate-msvc.mak remove-generated-nmake-files`
 to remove any generated files.
 
 From this directory in a Visual Studio command prompt, run the following:
@@ -110,7 +121,7 @@ Where:
 	   will also create and copy the `librsvg-2.0.pc` pkg-config file if
        Python can be found.
 
-*  `<path_options>` is as follows (plase note that paths with spaces
+*  `<path_options>` is as follows (please note that paths with spaces
    should be quoted):
     *  `PREFIX`: Root directory where built files will be copied to with
 	the `install` target.  This also determines the root directory from
@@ -159,7 +170,7 @@ Where:
 	   `pip` typically produces `gi-docgen` in `.exe` format).
 
 *  `<other_options>` is as follows, activate the options using
-   `<option>=1`:
+   `<option>=1`, unless otherwise noted:
     *  `INTROSPECTION`: Build the introspection files.  Please see notes
     above.
     *  `USE_PANGOFT2`: Build the test programs with PangoFT2 support,
@@ -167,3 +178,11 @@ Where:
        additionally require Pango built with FreeType support, meaning
        that HarfBuzz, FontConfig and FreeType will also be required for
        the test programs to run.
+    *  `VERBOSE`: Use verbose mode when building the Rust code.
+    *  `TOOLCHAIN_VERSION=<Rust_toolchain_version>`:
+       Use an specified installed version (or nightly version)
+       of the Rust toolchain instead of the default toolchain.
+       Useful for testing the librsvg code against a nightly toolchain
+       or the unstable toolchain itself, or if the latest Rust toolchain
+       release (which is often set as the default) introduced unexpected
+       issues.

@@ -2,8 +2,8 @@ AC_PREREQ([2.69])
 
 # Package version, the "human readable" version
 m4_define([rsvg_major_version],[2])
-m4_define([rsvg_minor_version],[54])
-m4_define([rsvg_micro_version],[7]) # Keep this in sync with Cargo.toml and doc/librsvg.toml
+m4_define([rsvg_minor_version],[58])
+m4_define([rsvg_micro_version],[0]) # Keep this in sync with Cargo.toml, doc/librsvg.toml, rsvg/Cargo.toml
 m4_define([rsvg_version],[rsvg_major_version.rsvg_minor_version.rsvg_micro_version])
 
 # Library version information.  To make a release:
@@ -20,9 +20,9 @@ m4_define([rsvg_version],[rsvg_major_version.rsvg_minor_version.rsvg_micro_versi
 #     rsvg_lt_current += 1
 #     rsvg_lt_revision = 0
 #     rsvg_lt_age = 0
-m4_define([rsvg_lt_current],[50])
+m4_define([rsvg_lt_current],[52])
 m4_define([rsvg_lt_revision],[0])
-m4_define([rsvg_lt_age],[48])
+m4_define([rsvg_lt_age],[50])
 m4_define([rsvg_lt_version_info],rsvg_lt_current:rsvg_lt_revision:rsvg_lt_age)
 
 AC_INIT([RSVG],[rsvg_version],[https://gitlab.gnome.org/GNOME/librsvg/issues],[librsvg])
@@ -56,9 +56,9 @@ AC_SUBST([LIBRSVG_MAJOR_VERSION],[rsvg_major_version])
 AC_SUBST([LIBRSVG_MINOR_VERSION],[rsvg_minor_version])
 AC_SUBST([LIBRSVG_MICRO_VERSION],[rsvg_micro_version])
 
-dnl ===========================================================================
-dnl Please update COMPILING.md with version numbers if these change
-CAIRO_REQUIRED=1.16.0
+dnl ===================================================================================
+dnl Please update devel-docs/devel_environment.rst with version numbers if these change
+CAIRO_REQUIRED=1.17.0
 dnl This corresponds to Freetype2 2.8
 FREETYPE2_REQUIRED=20.0.14
 GDK_PIXBUF_REQUIRED=2.20
@@ -66,7 +66,7 @@ GIO_REQUIRED=2.24.0
 GLIB_REQUIRED=2.50.0
 HARFBUZZ_REQUIRED=2.0.0
 LIBXML_REQUIRED=2.9.0
-PANGO_REQUIRED=1.46.0
+PANGO_REQUIRED=1.50.0
 
 dnl ===========================================================================
 
@@ -106,8 +106,9 @@ AS_IF(test x$RUSTC = xno,
 )
 
 dnl MSRV - Minimum Supported Rust Version
-dnl If you change this, please update COMPILING.md
-MINIMUM_RUST_VER=1.56
+dnl If you change this, please update the "_manual_setup" section of devel-docs/devel_environment.rst
+dnl keep in sync with Cargo.toml
+MINIMUM_RUST_VER=1.70.0
 rust_version=`$RUSTC --version | sed -e 's/^rustc //g'`
 AX_COMPARE_VERSION([$rust_version],[lt],[$MINIMUM_RUST_VER], [
     AC_MSG_ERROR([librsvg needs at least rustc version $MINIMUM_RUST_VER])
@@ -168,7 +169,6 @@ PKG_CHECK_MODULES(LIBRSVG,                     \
 	harfbuzz >= $HARFBUZZ_REQUIRED         \
 	libxml-2.0 >= $LIBXML_REQUIRED         \
 	pangocairo >= $PANGO_REQUIRED          \
-	pangoft2 >= $PANGO_REQUIRED	       \
 )
 
 CAIRO_VERSION=`$PKG_CONFIG --modversion cairo`
@@ -194,6 +194,11 @@ AS_IF([test x"$platform" = xWindows], [
   LIBS="$LIBS $USERENV_LIBS"
   AC_CHECK_HEADER([bcrypt.h], [BCRYPT_LIBS=-lbcrypt], [], [#include <windows.h>])
   LIBS="$LIBS $BCRYPT_LIBS"
+  # Link -lntdll if using Rust 1.70.0 or later
+  AX_COMPARE_VERSION([$rust_version],[ge],[1.70.0], [
+    AC_CHECK_HEADER([winternl.h], [WINNTDLL_LIBS=-lntdll], [], [#include <ntdef.h>])
+    LIBS="$LIBS $WINNTDLL_LIBS"
+  ])
 ])
 
 dnl ===========================================================================
@@ -338,7 +343,7 @@ include/librsvg/rsvg-version.h
 Makefile
 librsvg-zip
 gdk-pixbuf-loader/Makefile
-tests/Makefile
+librsvg-c/tests-c/Makefile
 doc/Makefile
 win32/Makefile
 win32/config.h.win32
