@@ -1,0 +1,13 @@
+Re-vendoring librsvg
+====================
+
+Upstream stopped vendoring their releases. For now, we re-vendor the crates under debian/missing-sources so we can build the package. 
+To do so, run the following steps for a new upstream release:
+
+	$ rm -rf debian/missing-sources
+	$ mkdir debian/missing-sources
+	$ cargo vendor debian/missing-sources
+
+This will vendor all needed dependencies.
+
+ -- Matthias Geiger <werdahias@riseup.net>  Sat, 24 Feb 2024 16:57:00 +0100
