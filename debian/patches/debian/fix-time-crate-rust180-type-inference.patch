@@ -1,0 +1,27 @@
+Description: Fix time crate E0282 type inference error with Rust 1.80+
+ The vendored time 0.3.34 crate fails to compile with rustc >= 1.80:
+ .
+   error[E0282]: type annotations needed for `Box<_>`
+     --> .../time/src/format_description/parse/mod.rs:83:9
+    = note: this is an inference error on crate `time` caused by an API
+      change in Rust 1.80.0; update `time` to version `>=0.3.35`
+ .
+ The `.map(|res| res.map(Into::into))` introduces an ambiguous Into
+ conversion that Rust 1.80+ can no longer infer. Upstream time 0.3.35
+ fixed this by simply removing the redundant map call, letting
+ format_items collect directly into Box<[Item<'a>]>.
+ .
+ This patch backports that one-line fix to the vendored 0.3.34 source.
+Forwarded: not-needed, already fixed upstream in time 0.3.35
+Author: jiabowen <jiabowen@uniontech.com>
+
+--- a/debian/missing-sources/time/src/format_description/parse/mod.rs
++++ b/debian/missing-sources/time/src/format_description/parse/mod.rs
+@@ -81,7 +81,6 @@
+     let ast = ast::parse::<_, VERSION>(&mut lexed);
+     let format_items = format_item::parse(ast);
+     let items = format_items
+-        .map(|res| res.map(Into::into))
+         .collect::<Result<Box<_>, _>>()?;
+     Ok(items.into())
+ }
