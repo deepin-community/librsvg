@@ -22,18 +22,17 @@ Table of contents:
 
 # Supported branches
 
-Generally two branches are supported at any one time:
+Only these versions are supported:
 
-* The latest stable branch.  See the [branches
-  page](https://gitlab.gnome.org/GNOME/librsvg/-/branches) and look for
-  the one called `librsvg-x.yy` where the `x.yy` numbers are highest. You
-  can use this branch safely for production work.
+* 2.59.x
+* 2.60.x
 
-* The `main` branch.  All development happens here.
+Older versions are not supported.  Please try a newer version before
+reporting bugs or missing features.
 
-Stable branches become unsupported when a new one appears.  For
-example, `librsvg-2.55` will become unsupported when `librsvg-2.56`
-appears.
+See the [policy for supported
+versions](https://gnome.pages.gitlab.gnome.org/librsvg/devel-docs/supported_versions.html)
+for more details.
 
 * [Release archive](https://gitlab.gnome.org/GNOME/librsvg/-/releases) in gitlab.gnome.org
 * [Source tarballs for download](https://download.gnome.org/sources/librsvg/) at download.gnome.org
@@ -43,12 +42,10 @@ appears.
 * [C API documentation][c-docs]
 * [Rust API documentation][rust-docs]
 
-**Compiling:** Librsvg uses a mostly normal [autotools] setup.  You
-may run into some peculiarities due to the Rust internals library if
-you are **cross-compiling** or if you are in a **build system with no
-network access**, or if you are **building binary packages from a
-librsvg tarball**.  In those cases, please refer to the
-[Detailed compilation instructions][compiling] in the development guide.
+**Compiling:** Librsvg uses the [meson] build system.  Compile-time
+options are listed in the file [`meson_options.txt`][meson_options].
+Please refer to the [Detailed compilation instructions][compiling] in
+the development guide.
 
 **Documentation:** You can read the documentation for librsvg's [C
 API][c-docs] or the [Rust API][rust-docs].  Please [file an
@@ -198,7 +195,8 @@ ways:
 [cairo]: https://www.cairographics.org/
 [coc]: https://conduct.gnome.org
 [coc-local]: code-of-conduct.md
-[autotools]: https://autotools.io/index.html
+[meson]: https://mesonbuild.com
+[meson_options]: meson_options.txt
 [compiling]: https://gnome.pages.gitlab.gnome.org/librsvg/devel-docs/compiling.html
 [mail]: mailto:federico@gnome.org
 [bugs]: https://gitlab.gnome.org/GNOME/librsvg/issues

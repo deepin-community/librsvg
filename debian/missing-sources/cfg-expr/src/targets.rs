@@ -348,7 +348,7 @@ pub struct TargetInfo {
     /// [target_endian](https://doc.rust-lang.org/reference/conditional-compilation.html#target_endian)
     /// predicate.
     pub endian: Endian,
-    /// The target's support for atomics. Used by the has_target_atomics predicate.
+    /// The target's support for atomics. Used by the `has_target_atomics` predicate.
     pub has_atomics: HasAtomics,
     /// The panic strategy used on this target by default. Used by the
     /// [panic](https://doc.rust-lang.org/beta/reference/conditional-compilation.html#panic) predicate.
@@ -368,12 +368,9 @@ pub fn get_builtin_target_by_triple(triple: &str) -> Option<&'static TargetInfo>
 }
 
 /// Retrieves the version of rustc for which the built-in targets were
-/// retrieved from. Targets may be added and removed between different rustc
-/// versions.
+/// retrieved from.
 ///
-/// ```
-/// assert_eq!("1.75.0", cfg_expr::targets::rustc_version());
-/// ```
+/// Targets may be added and removed between different rustc versions.
 pub fn rustc_version() -> &'static str {
     builtins::RUSTC_VERSION
 }
@@ -397,7 +394,7 @@ mod test {
     #[test]
     fn has_ios() {
         assert_eq!(
-            7,
+            8,
             super::ALL_BUILTINS
                 .iter()
                 .filter(|ti| ti.os == Some(super::Os::ios))

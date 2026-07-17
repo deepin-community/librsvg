@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::OutputStream;
+use crate::{ffi, OutputStream};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -31,6 +31,7 @@ mod sealed {
 pub trait FilterOutputStreamExt: IsA<FilterOutputStream> + sealed::Sealed + 'static {
     #[doc(alias = "g_filter_output_stream_get_base_stream")]
     #[doc(alias = "get_base_stream")]
+    #[doc(alias = "base-stream")]
     fn base_stream(&self) -> OutputStream {
         unsafe {
             from_glib_none(ffi::g_filter_output_stream_get_base_stream(
@@ -41,6 +42,7 @@ pub trait FilterOutputStreamExt: IsA<FilterOutputStream> + sealed::Sealed + 'sta
 
     #[doc(alias = "g_filter_output_stream_get_close_base_stream")]
     #[doc(alias = "get_close_base_stream")]
+    #[doc(alias = "close-base-stream")]
     fn closes_base_stream(&self) -> bool {
         unsafe {
             from_glib(ffi::g_filter_output_stream_get_close_base_stream(
@@ -77,7 +79,7 @@ pub trait FilterOutputStreamExt: IsA<FilterOutputStream> + sealed::Sealed + 'sta
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::close-base-stream\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_close_base_stream_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

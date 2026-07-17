@@ -148,12 +148,22 @@ fn impl_i32x8_abs() {
 }
 
 #[test]
+fn impl_i32x8_unsigned_abs() {
+  let a = i32x8::from([-1, 2, -3, i32::MIN, 6, -15, -19, 9]);
+  let expected = u32x8::from([1, 2, 3, i32::MIN as u32, 6, 15, 19, 9]);
+  let actual = a.unsigned_abs();
+  assert_eq!(expected, actual);
+}
+
+#[test]
 fn impl_i32x8_max() {
   let a = i32x8::from([1, 2, i32::MIN + 1, i32::MIN, 6, -8, 12, 9]);
   let b = i32x8::from([17, -18, 1, 1, 19, -5, -1, -9]);
   let expected = i32x8::from([17, 2, 1, 1, 19, -5, 12, 9]);
   let actual = a.max(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i32x8, b| a.max(b), |a, b| a.max(b));
 }
 
 #[test]
@@ -163,6 +173,8 @@ fn impl_i32x8_min() {
   let expected = i32x8::from([1, -18, i32::MIN + 1, i32::MIN, 6, -8, -1, -9]);
   let actual = a.min(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i32x8, b| a.min(b), |a, b| a.min(b));
 }
 
 #[test]
@@ -224,6 +236,29 @@ fn impl_from_i16x8() {
 }
 
 #[test]
+fn impl_from_u16x8() {
+  let a = u16x8::from([1, 2, 3, 4, 5, i16::MAX as u16, u16::MAX - 1, u16::MAX]);
+  let actual = i32x8::from_u16x8(a);
+  let expected = i32x8::from([
+    1,
+    2,
+    3,
+    4,
+    5,
+    i16::MAX as i32,
+    (u16::MAX - 1) as i32,
+    u16::MAX as i32,
+  ]);
+
+  assert_eq!(actual, expected);
+
+  crate::test_random_vector_vs_scalar(
+    |a: u16x8, _b| i32x8::from_u16x8(a),
+    |a, _b| a as u32 as i32,
+  );
+}
+
+#[test]
 fn test_i16x8_move_mask() {
   let a = i16x8::from([-1, 0, -2, -3, -1, 0, -2, -3]);
   let expected = 0b11011101;
@@ -234,6 +269,12 @@ fn test_i16x8_move_mask() {
   let expected = 0b10001000;
   let actual = a.move_mask();
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i32x8| a.move_mask(),
+    0i32,
+    |acc, a, idx| acc | if a < 0 { 1 << idx } else { 0 },
+  );
 }
 
 #[test]
@@ -243,6 +284,12 @@ fn test_i32x8_any() {
   //
   let a = i32x8::from([0, 0, 0, 0, 0, 0, 0, 0]);
   assert!(!a.any());
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i32x8| a.any(),
+    false,
+    |acc, a, _idx| acc | (a < 0),
+  );
 }
 
 #[test]
@@ -252,6 +299,12 @@ fn test_i32x8_all() {
   //
   let a = i32x8::from([-1; 8]);
   assert!(a.all());
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i32x8| a.all(),
+    true,
+    |acc, a, _idx| acc & (a < 0),
+  );
 }
 
 #[test]
@@ -261,6 +314,12 @@ fn test_i32x8_none() {
   //
   let a = i32x8::from([0; 8]);
   assert!(a.none());
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i32x8| a.none(),
+    true,
+    |acc, a, _idx| acc & !(a < 0),
+  );
 }
 
 #[test]
@@ -290,4 +349,33 @@ fn impl_i32x8_reduce_max() {
     let p = i32x8::from(v);
     assert_eq!(p.reduce_max(), i32::MAX);
   }
+}
+
+#[test]
+fn impl_i32x4_shr_each() {
+  let a = u32x8::from([15313, 52322, u32::MAX, 4, 10, 20, 30, 40]);
+  let shift =
+    u32x8::from([1, 30, 8, 33 /* test masking behavior */, 1, 2, 3, 4]);
+  let expected = u32x8::from([7656, 0, 16777215, 2, 5, 5, 3, 2]);
+  let actual = a >> shift;
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i32x8, b| a >> b,
+    |a, b| a.wrapping_shr(b as u32),
+  );
+}
+#[test]
+fn impl_i32x8_shl_each() {
+  let a = i32x8::from([15313, 52322, -1, 4, 1, 2, 3, 4]);
+  let shift =
+    i32x8::from([1, 30, 8, 33 /* test masking behavior */, 1, 2, 3, 4]);
+  let expected = i32x8::from([30626, -2147483648, -256, 8, 2, 8, 24, 64]);
+  let actual = a << shift;
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i32x8, b| a << b,
+    |a, b| a.wrapping_shl(b as u32),
+  );
 }

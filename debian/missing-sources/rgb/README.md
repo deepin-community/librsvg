@@ -2,7 +2,7 @@
 
 Operating on pixels as weakly-typed vectors of `u8` is error-prone and inconvenient. It's better to use vectors of pixel structs. However, Rust is so strongly typed that *your* RGB pixel struct is not compatible with *my* RGB pixel struct. So let's all use mine :P
 
-[![xkcd standards](https://imgs.xkcd.com/comics/standards.png)](https://xkcd.com/927/)
+[<img src="https://imgs.xkcd.com/comics/standards_2x.png" alt="xkcd: …there are 15 competing standards" width="500">](https://xkcd.com/927/)
 
 ## Installation
 
@@ -10,7 +10,7 @@ Add this to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-rgb = "0.8"
+rgb = "0.8.43"
 ```
 
 ## Usage
@@ -61,10 +61,29 @@ type LinearRGB = RGB<LinearLight>;
 
 ### `BGRA`, `ARGB`, `Gray`, etc.
 
-There are other color types in `rgb::alt::*`. To enable `ARGB` and `ABGR`, use the "argb" feature:
+There are other color types in `rgb::alt::*`. There's also an optional `serde` feature that makes all types (de)serializable.
 
-```toml
-rgb = { version = "0.8", features = ["argb"] }
-```
+## Roadmap to 1.0
 
-There's also an optional `serde` feature that makes all types (de)serializable.
+The plan is to provide easy migration to v1.0. There will be a transitional v0.9 version released that will be mostly backwards-compatible with 0.8, and forwards-compatible with 1.0.
+
+Planned changes:
+
+ * Types will be renamed to follow Rust's naming convention: `RGBA` → `Rgba`. The old names will continue to work as hidden aliases.
+ * The `Gray` and `GrayAlpha` types will change from tuple structs with `.0` to structs with named fields `.v` (value) and `.a` (alpha). Through a `Deref` trick both field names will work, but `.0` is going to be deprecated.
+ * `bytemuck::Pod` (conversions from/to raw bytes) will require color and alpha components to be the same type (i.e. it will work with `Rgba<u8>`, but not `Rgba<Newtype, DifferentType>`). Currently it's unsound if the alpha has a different size than color components.
+ * Many inherent methods will be moved to a new `Pixel` trait.
+
+## Migration from 0.8 to 0.9
+
+1. Update to the latest version of 0.8, and fix all deprecation warnings.
+
+   - rename `.alpha()` to `.with_alpha()`
+   - rename `.map_c()` to `.map_colors()`
+
+2. Change field access on `GrayAlpha` from `.0` and `.1` to `.v` and `.a` where possible.
+3. Use the `bytemuck` crate for conversions from/to bytes instead of `ComponentBytes` trait. Disable the `as-bytes` feature if possible.
+4. Don't enable `gbr` and `argb` features. All pixel types are enabled by default.
+5. In generic code operating on pixels, add `Copy + 'static` bounds to the pixel types and/or their components.
+6. Test your code with `rgb = { version = "0.8.46", features = ["unstable-experimental"] }`, which enables some of the future breaking changes on the older version. This feature flag is only for testing, and will be changed/removed in the future.
+7. Avoid wildcard imports from `rgb::alt::*`, and avoid using `GRAY8`-`GRAYA16` type aliases.

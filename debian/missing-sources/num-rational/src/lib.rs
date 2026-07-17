@@ -12,7 +12,7 @@
 //!
 //! ## Compatibility
 //!
-//! The `num-rational` crate is tested for rustc 1.31 and greater.
+//! The `num-rational` crate is tested for rustc 1.60 and greater.
 
 #![doc(html_root_url = "https://docs.rs/num-rational/0.4")]
 #![no_std]
@@ -38,10 +38,9 @@ use num_bigint::{BigInt, BigUint, Sign, ToBigInt};
 
 use num_integer::Integer;
 use num_traits::float::FloatCore;
-use num_traits::ToPrimitive;
 use num_traits::{
-    Bounded, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, FromPrimitive, Inv, Num, NumCast, One,
-    Pow, Signed, Zero,
+    Bounded, CheckedAdd, CheckedDiv, CheckedMul, CheckedSub, ConstOne, ConstZero, FromPrimitive,
+    Inv, Num, NumCast, One, Pow, Signed, ToPrimitive, Unsigned, Zero,
 };
 
 mod pow;
@@ -71,7 +70,7 @@ pub type Rational64 = Ratio<i64>;
 /// Alias for arbitrary precision rationals.
 pub type BigRational = Ratio<BigInt>;
 
-/// These method are `const` for Rust 1.31 and later.
+/// These method are `const`.
 impl<T> Ratio<T> {
     /// Creates a `Ratio` without checking for `denom == 0` or reducing.
     ///
@@ -80,6 +79,12 @@ impl<T> Ratio<T> {
     #[inline]
     pub const fn new_raw(numer: T, denom: T) -> Ratio<T> {
         Ratio { numer, denom }
+    }
+
+    /// Deconstructs a `Ratio` into its numerator and denominator.
+    #[inline]
+    pub fn into_raw(self) -> (T, T) {
+        (self.numer, self.denom)
     }
 
     /// Gets an immutable reference to the numerator.
@@ -920,6 +925,15 @@ where
 }
 
 // Constants
+impl<T: ConstZero + ConstOne> Ratio<T> {
+    /// A constant `Ratio` 0/1.
+    pub const ZERO: Self = Self::new_raw(T::ZERO, T::ONE);
+}
+
+impl<T: Clone + Integer + ConstZero + ConstOne> ConstZero for Ratio<T> {
+    const ZERO: Self = Self::ZERO;
+}
+
 impl<T: Clone + Integer> Zero for Ratio<T> {
     #[inline]
     fn zero() -> Ratio<T> {
@@ -936,6 +950,15 @@ impl<T: Clone + Integer> Zero for Ratio<T> {
         self.numer.set_zero();
         self.denom.set_one();
     }
+}
+
+impl<T: ConstOne> Ratio<T> {
+    /// A constant `Ratio` 1/1.
+    pub const ONE: Self = Self::new_raw(T::ONE, T::ONE);
+}
+
+impl<T: Clone + Integer + ConstOne> ConstOne for Ratio<T> {
+    const ONE: Self = Self::ONE;
 }
 
 impl<T: Clone + Integer> One for Ratio<T> {
@@ -1042,15 +1065,11 @@ macro_rules! impl_formatting {
                         format!(concat!($fmt_str, "/", $fmt_str), self.numer, self.denom)
                     }
                 };
-                // TODO: replace with strip_prefix, when stabalized
-                let (pre_pad, non_negative) = {
-                    if pre_pad.starts_with("-") {
-                        (&pre_pad[1..], false)
-                    } else {
-                        (&pre_pad[..], true)
-                    }
-                };
-                f.pad_integral(non_negative, $prefix, pre_pad)
+                if let Some(pre_pad) = pre_pad.strip_prefix("-") {
+                    f.pad_integral(false, $prefix, pre_pad)
+                } else {
+                    f.pad_integral(true, $prefix, &pre_pad)
+                }
             }
             #[cfg(not(feature = "std"))]
             fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
@@ -1122,9 +1141,9 @@ impl<T: FromStr + Clone + Integer> FromStr for Ratio<T> {
     }
 }
 
-impl<T> Into<(T, T)> for Ratio<T> {
-    fn into(self) -> (T, T) {
-        (self.numer, self.denom)
+impl<T> From<Ratio<T>> for (T, T) {
+    fn from(val: Ratio<T>) -> Self {
+        (val.numer, val.denom)
     }
 }
 
@@ -1280,6 +1299,16 @@ impl<T: Integer + Signed + Bounded + NumCast + Clone> Ratio<T> {
     }
 }
 
+impl<T: Integer + Unsigned + Bounded + NumCast + Clone> Ratio<T> {
+    pub fn approximate_float_unsigned<F: FloatCore + NumCast>(f: F) -> Option<Ratio<T>> {
+        // 1/10e-20 < 1/2**32 which seems like a good default, and 30 seems
+        // to work well. Might want to choose something based on the types in the future, e.g.
+        // T::max().recip() and T::bits() or something similar.
+        let epsilon = <F as NumCast>::from(10e-20).expect("Can't convert 10e-20");
+        approximate_float_unsigned(f, epsilon, 30)
+    }
+}
+
 fn approximate_float<T, F>(val: F, max_error: F, max_iterations: usize) -> Option<Ratio<T>>
 where
     T: Integer + Signed + Bounded + NumCast + Clone,
@@ -1302,7 +1331,7 @@ where
     F: FloatCore + NumCast,
 {
     // Continued fractions algorithm
-    // http://mathforum.org/dr.math/faq/faq.fractions.html#decfrac
+    // https://web.archive.org/web/20200629111319/http://mathforum.org:80/dr.math/faq/faq.fractions.html#decfrac
 
     if val < F::zero() || val.is_nan() {
         return None;
@@ -1549,7 +1578,8 @@ fn ratio_to_f64<T: Bits + Clone + Integer + Signed + ShlAssign<usize> + ToPrimit
     // FPU do the job is faster and easier. In any other case, converting to f64s may lead
     // to an inexact result: https://stackoverflow.com/questions/56641441/.
     if let (Some(n), Some(d)) = (numer.to_i64(), denom.to_i64()) {
-        if MIN_EXACT_INT <= n && n <= MAX_EXACT_INT && MIN_EXACT_INT <= d && d <= MAX_EXACT_INT {
+        let exact = MIN_EXACT_INT..=MAX_EXACT_INT;
+        if exact.contains(&n) && exact.contains(&d) {
             return n.to_f64().unwrap() / d.to_f64().unwrap();
         }
     }
@@ -1697,10 +1727,8 @@ fn hash<T: Hash>(x: &T) -> u64 {
 #[cfg(test)]
 mod test {
     use super::ldexp;
-    #[cfg(all(feature = "num-bigint"))]
-    use super::BigInt;
     #[cfg(feature = "num-bigint")]
-    use super::BigRational;
+    use super::{BigInt, BigRational};
     use super::{Ratio, Rational64};
 
     use core::f64;
@@ -2101,24 +2129,21 @@ mod test {
         assert_fmt_eq!(format_args!("{:X}", -half_i8), "FF/2");
         assert_fmt_eq!(format_args!("{:#X}", -half_i8), "0xFF/0x2");
 
-        #[cfg(has_int_exp_fmt)]
-        {
-            assert_fmt_eq!(format_args!("{:e}", -_2), "-2e0");
-            assert_fmt_eq!(format_args!("{:#e}", -_2), "-2e0");
-            assert_fmt_eq!(format_args!("{:+e}", -_2), "-2e0");
-            assert_fmt_eq!(format_args!("{:e}", _BILLION), "1e9");
-            assert_fmt_eq!(format_args!("{:+e}", _BILLION), "+1e9");
-            assert_fmt_eq!(format_args!("{:e}", _BILLION.recip()), "1e0/1e9");
-            assert_fmt_eq!(format_args!("{:+e}", _BILLION.recip()), "+1e0/1e9");
+        assert_fmt_eq!(format_args!("{:e}", -_2), "-2e0");
+        assert_fmt_eq!(format_args!("{:#e}", -_2), "-2e0");
+        assert_fmt_eq!(format_args!("{:+e}", -_2), "-2e0");
+        assert_fmt_eq!(format_args!("{:e}", _BILLION), "1e9");
+        assert_fmt_eq!(format_args!("{:+e}", _BILLION), "+1e9");
+        assert_fmt_eq!(format_args!("{:e}", _BILLION.recip()), "1e0/1e9");
+        assert_fmt_eq!(format_args!("{:+e}", _BILLION.recip()), "+1e0/1e9");
 
-            assert_fmt_eq!(format_args!("{:E}", -_2), "-2E0");
-            assert_fmt_eq!(format_args!("{:#E}", -_2), "-2E0");
-            assert_fmt_eq!(format_args!("{:+E}", -_2), "-2E0");
-            assert_fmt_eq!(format_args!("{:E}", _BILLION), "1E9");
-            assert_fmt_eq!(format_args!("{:+E}", _BILLION), "+1E9");
-            assert_fmt_eq!(format_args!("{:E}", _BILLION.recip()), "1E0/1E9");
-            assert_fmt_eq!(format_args!("{:+E}", _BILLION.recip()), "+1E0/1E9");
-        }
+        assert_fmt_eq!(format_args!("{:E}", -_2), "-2E0");
+        assert_fmt_eq!(format_args!("{:#E}", -_2), "-2E0");
+        assert_fmt_eq!(format_args!("{:+E}", -_2), "-2E0");
+        assert_fmt_eq!(format_args!("{:E}", _BILLION), "1E9");
+        assert_fmt_eq!(format_args!("{:+E}", _BILLION), "+1E9");
+        assert_fmt_eq!(format_args!("{:E}", _BILLION.recip()), "1E0/1E9");
+        assert_fmt_eq!(format_args!("{:+E}", _BILLION.recip()), "+1E0/1E9");
     }
 
     mod arith {

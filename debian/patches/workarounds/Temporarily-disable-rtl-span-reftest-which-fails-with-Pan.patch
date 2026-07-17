@@ -17,10 +17,10 @@ Forwarded: not-needed, Debian-specific workaround
  1 file changed, 1 deletion(-)
 
 diff --git a/rsvg/tests/reference.rs b/rsvg/tests/reference.rs
-index 220b64d..a129724 100644
+index 81c9604..aab7d45 100644
 --- a/rsvg/tests/reference.rs
 +++ b/rsvg/tests/reference.rs
-@@ -227,7 +227,6 @@ mod tests {
+@@ -224,7 +224,6 @@ mod tests {
      t!(include_compressed_svg,                                      "include-compressed.svg");
      t!(include_fallback_svg,                                        "include-fallback.svg");
      t!(include_text_svg,                                            "include-text.svg");

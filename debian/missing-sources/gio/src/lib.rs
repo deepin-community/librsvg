@@ -6,11 +6,12 @@
 #![allow(clippy::missing_safety_doc)]
 #![doc = include_str!("../README.md")]
 
-pub use ffi;
+pub use gio_sys as ffi;
 pub use glib;
 
 mod action_entry;
 mod action_map;
+#[cfg(feature = "v2_60")]
 mod app_info;
 mod application;
 pub use action_entry::{ActionEntry, ActionEntryBuilder};
@@ -20,6 +21,7 @@ mod cancellable;
 mod cancellable_future;
 pub use crate::cancellable_future::{CancellableFuture, Cancelled};
 mod converter;
+mod credentials;
 mod data_input_stream;
 mod datagram_based;
 mod dbus;
@@ -80,6 +82,7 @@ mod simple_proxy_resolver;
 mod socket;
 pub use socket::{InputMessage, InputVector, OutputMessage, OutputVector, SocketControlMessages};
 mod socket_control_message;
+mod socket_listener;
 mod socket_msg_flags;
 pub use socket_msg_flags::SocketMsgFlags;
 mod subprocess;
@@ -143,12 +146,12 @@ pub use crate::write_output_stream::WriteOutputStream;
 mod dbus_proxy;
 mod tls_connection;
 
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 mod win32_input_stream;
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 pub use self::win32_input_stream::Win32InputStream;
 
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 mod win32_output_stream;
-#[cfg(target_family = "windows")]
+#[cfg(windows)]
 pub use self::win32_output_stream::Win32OutputStream;

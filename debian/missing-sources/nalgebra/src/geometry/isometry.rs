@@ -14,6 +14,8 @@ use crate::base::storage::Owned;
 use crate::base::{Const, DefaultAllocator, OMatrix, SVector, Scalar, Unit};
 use crate::geometry::{AbstractRotation, Point, Translation};
 
+use crate::{Isometry3, Quaternion, Vector3, Vector4};
+
 #[cfg(feature = "rkyv-serialize")]
 use rkyv::bytecheck;
 
@@ -54,19 +56,18 @@ use rkyv::bytecheck;
 ///
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
-#[cfg_attr(feature = "cuda", derive(cust_core::DeviceCopy))]
 #[cfg_attr(feature = "serde-serialize-no-std", derive(Serialize, Deserialize))]
 #[cfg_attr(
     feature = "serde-serialize-no-std",
     serde(bound(serialize = "R: Serialize,
-                     DefaultAllocator: Allocator<T, Const<D>>,
+                     DefaultAllocator: Allocator<Const<D>>,
                      Owned<T, Const<D>>: Serialize,
                      T: Scalar"))
 )]
 #[cfg_attr(
     feature = "serde-serialize-no-std",
     serde(bound(deserialize = "R: Deserialize<'de>,
-                       DefaultAllocator: Allocator<T, Const<D>>,
+                       DefaultAllocator: Allocator<Const<D>>,
                        Owned<T, Const<D>>: Deserialize<'de>,
                        T: Scalar"))
 )]
@@ -98,6 +99,23 @@ where
         self.translation.hash(state);
         self.rotation.hash(state);
     }
+}
+
+#[cfg(feature = "bytemuck")]
+unsafe impl<T: Scalar, R, const D: usize> bytemuck::Zeroable for Isometry<T, R, D>
+where
+    SVector<T, D>: bytemuck::Zeroable,
+    R: bytemuck::Zeroable,
+{
+}
+
+#[cfg(feature = "bytemuck")]
+unsafe impl<T: Scalar, R, const D: usize> bytemuck::Pod for Isometry<T, R, D>
+where
+    SVector<T, D>: bytemuck::Pod,
+    R: bytemuck::Pod,
+    T: Copy,
+{
 }
 
 /// # From the translation and rotation parts
@@ -434,7 +452,7 @@ impl<T: SimdRealField, R, const D: usize> Isometry<T, R, D> {
     where
         Const<D>: DimNameAdd<U1>,
         R: SubsetOf<OMatrix<T, DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>>,
-        DefaultAllocator: Allocator<T, DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>,
+        DefaultAllocator: Allocator<DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>,
     {
         let mut res: OMatrix<T, _, _> = crate::convert_ref(&self.rotation);
         res.fixed_view_mut::<D, 1>(0, D)
@@ -466,7 +484,7 @@ impl<T: SimdRealField, R, const D: usize> Isometry<T, R, D> {
     where
         Const<D>: DimNameAdd<U1>,
         R: SubsetOf<OMatrix<T, DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>>,
-        DefaultAllocator: Allocator<T, DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>,
+        DefaultAllocator: Allocator<DimNameSum<Const<D>, U1>, DimNameSum<Const<D>, U1>>,
     {
         self.to_homogeneous()
     }

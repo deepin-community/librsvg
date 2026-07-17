@@ -2,6 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
+use crate::ffi;
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -177,7 +178,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             F: Fn(&P, &str) + 'static,
         >(
             this: *mut ffi::GActionGroup,
-            action_name: *mut libc::c_char,
+            action_name: *mut std::ffi::c_char,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -195,7 +196,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     action_added_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -214,7 +215,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             F: Fn(&P, &str, bool) + 'static,
         >(
             this: *mut ffi::GActionGroup,
-            action_name: *mut libc::c_char,
+            action_name: *mut std::ffi::c_char,
             enabled: glib::ffi::gboolean,
             f: glib::ffi::gpointer,
         ) {
@@ -235,7 +236,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     action_enabled_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -254,7 +255,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             F: Fn(&P, &str) + 'static,
         >(
             this: *mut ffi::GActionGroup,
-            action_name: *mut libc::c_char,
+            action_name: *mut std::ffi::c_char,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -272,7 +273,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     action_removed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -291,7 +292,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             F: Fn(&P, &str, &glib::Variant) + 'static,
         >(
             this: *mut ffi::GActionGroup,
-            action_name: *mut libc::c_char,
+            action_name: *mut std::ffi::c_char,
             value: *mut glib::ffi::GVariant,
             f: glib::ffi::gpointer,
         ) {
@@ -311,7 +312,7 @@ pub trait ActionGroupExt: IsA<ActionGroup> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     action_state_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

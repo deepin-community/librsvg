@@ -1,4 +1,3 @@
-Link-librsvg-with-libpthread-fixing-a-link-failure.patch
 debian/Revert-ABI-breakage.patch
 debian/tests-Replace-a-CC-BY-SA-2.0-test-image-with-a-simpler-on.patch
 debian/use-vendored-crates.diff

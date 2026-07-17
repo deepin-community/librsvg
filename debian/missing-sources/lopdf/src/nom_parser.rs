@@ -1,7 +1,6 @@
-use super::{Dictionary, Object, ObjectId, Stream, StringFormat};
+use super::{Dictionary, Object, ObjectId, Reader, Stream, StringFormat};
 use crate::content::*;
 use crate::error::XrefError;
-use crate::reader::Reader;
 use crate::xref::*;
 use crate::Error;
 use std::str::{self, FromStr};
@@ -473,7 +472,10 @@ fn operand(input: &[u8]) -> NomResult<Object> {
 
 fn operation(input: &[u8]) -> NomResult<Operation> {
     map(
-        terminated(pair(many0(operand), operator), content_space),
+        preceded(
+            many0(comment),
+            terminated(pair(many0(operand), operator), content_space),
+        ),
         |(operands, operator)| Operation { operator, operands },
     )(input)
 }
@@ -618,5 +620,18 @@ startxref
             Ok((_, re)) => assert_eq!(re.entries.len(), 15),
             Err(err) => panic!("unexpected {:?}", err),
         }
+    }
+
+    #[test]
+    fn content_with_comments() {
+        // It should be processed as usual but ignoring the comments
+        let input = b"0.5 0.5 0.5 setrgbcolor
+% This is a comment
+100 100 moveto
+(Hello, world!) show
+% Another comment
+";
+        let out = content(input).unwrap();
+        assert_eq!(out.operations.len(), 3);
     }
 }

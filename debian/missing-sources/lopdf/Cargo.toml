@@ -12,7 +12,7 @@
 [package]
 edition = "2021"
 name = "lopdf"
-version = "0.32.0"
+version = "0.33.0"
 authors = [
     "Junfeng Liu <china.liujunfeng@gmail.com>",
     "Emulator <emulator@hotmail.it>",
@@ -44,8 +44,16 @@ name = "extract_text"
 required-features = ["serde"]
 
 [[example]]
+name = "print_annotations"
+required-features = ["default"]
+
+[[example]]
 name = "rotate"
 required-features = ["nom_parser"]
+
+[[test]]
+name = "modify"
+required-features = ["pom_parser"]
 
 [dependencies.chrono]
 version = "^0.4"
@@ -66,6 +74,9 @@ version = "^1.0"
 version = "^0.24"
 optional = true
 
+[dependencies.indexmap]
+version = "2.2.3"
+
 [dependencies.itoa]
 version = "^1.0"
 
@@ -75,8 +86,8 @@ version = "^0.5"
 [dependencies.log]
 version = "^0.4"
 
-[dependencies.md5]
-version = "0.7.0"
+[dependencies.md-5]
+version = "0.10"
 
 [dependencies.nom]
 version = "^7.1"
@@ -102,6 +113,14 @@ features = [
     "parsing",
 ]
 
+[dependencies.tokio]
+version = "1"
+features = [
+    "fs",
+    "io-util",
+]
+optional = true
+
 [dependencies.weezl]
 version = "0.1"
 
@@ -122,6 +141,10 @@ version = "3.0"
 version = "3.3"
 
 [features]
+async = [
+    "tokio/rt-multi-thread",
+    "tokio/macros",
+]
 chrono_time = ["chrono"]
 default = [
     "chrono_time",

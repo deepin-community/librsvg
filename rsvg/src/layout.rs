@@ -9,6 +9,7 @@ use float_cmp::approx_eq;
 
 use crate::aspect_ratio::AspectRatio;
 use crate::bbox::BoundingBox;
+use crate::cairo_path::CairoPath;
 use crate::coord_units::CoordUnits;
 use crate::dasharray::Dasharray;
 use crate::document::AcquiredNodes;
@@ -17,7 +18,7 @@ use crate::filter::FilterValueList;
 use crate::length::*;
 use crate::node::*;
 use crate::paint_server::{PaintSource, UserSpacePaintSource};
-use crate::path_builder::Path;
+use crate::path_builder::Path as SvgPath;
 use crate::properties::{
     self, ClipRule, ComputedValues, Direction, FillRule, FontFamily, FontStretch, FontStyle,
     FontVariant, FontWeight, ImageRendering, Isolation, MixBlendMode, Opacity, Overflow,
@@ -30,6 +31,7 @@ use crate::session::Session;
 use crate::surface_utils::shared_surface::SharedImageSurface;
 use crate::transform::Transform;
 use crate::unit_interval::UnitInterval;
+use crate::viewbox::ViewBox;
 use crate::{borrow_element_as, is_element_of_type};
 
 /// SVG Stacking context, an inner node in the layout tree.
@@ -70,6 +72,30 @@ pub enum LayerKind {
     Shape(Box<Shape>),
     Text(Box<Text>),
     Image(Box<Image>),
+    Group(Box<Group>),
+}
+
+pub struct Group {
+    pub children: Vec<Layer>,
+    pub is_visible: bool, // FIXME: move to Layer?  All of them have this...
+    pub establish_viewport: Option<LayoutViewport>,
+}
+
+/// Used for elements that need to establish a new viewport, like `<svg>`.
+pub struct LayoutViewport {
+    // transform goes in the group's layer's StackingContext
+    /// Position and size of the element, per its x/y/width/height properties.
+    /// For markers, this is markerWidth/markerHeight.
+    pub geometry: Rect,
+
+    /// viewBox attribute
+    pub vbox: Option<ViewBox>,
+
+    /// preserveAspectRatio attribute
+    pub preserve_aspect_ratio: AspectRatio,
+
+    /// overflow property
+    pub overflow: Overflow,
 }
 
 /// Stroke parameters in user-space coordinates.
@@ -84,15 +110,45 @@ pub struct Stroke {
     pub non_scaling: bool,
 }
 
+/// A path that has been validated for being suitable for Cairo.
+///
+/// As of 2024/Sep/25, Cairo converts path coordinates to fixed point, but it has several problems:
+///
+/// * For coordinates that are outside of the representable range in
+///   fixed point, Cairo just clamps them.  It is not able to return
+///   this condition as an error to the caller.
+///
+/// * Then, it has multiple cases of possible arithmetic overflow
+///   while processing the paths for rendering.  Fixing this is an
+///   ongoing project.
+///
+/// While Cairo gets better in these respects, librsvg will try to do
+/// some mitigations, mainly about catching problematic coordinates
+/// early and not passing them on to Cairo.
+pub enum Path {
+    /// Path that has been checked for being suitable for Cairo.
+    ///
+    /// Note that this also keeps a reference to the original [SvgPath], in addition to
+    /// the lowered [CairoPath].  This is because the markers code still needs the former.
+    Validated {
+        cairo_path: CairoPath,
+        path: Rc<SvgPath>,
+        extents: Option<Rect>,
+        stroke_paint: UserSpacePaintSource,
+        fill_paint: UserSpacePaintSource,
+    },
+
+    /// Reason why the path was determined to be not suitable for Cairo.  This
+    /// is just used for logging purposes.
+    Invalid(String),
+}
+
 /// Paths and basic shapes resolved to a path.
 pub struct Shape {
-    pub path: Rc<Path>,
-    pub extents: Option<Rect>,
+    pub path: Path,
     pub is_visible: bool,
     pub paint_order: PaintOrder,
     pub stroke: Stroke,
-    pub stroke_paint: UserSpacePaintSource,
-    pub fill_paint: UserSpacePaintSource,
     pub fill_rule: FillRule,
     pub clip_rule: ClipRule,
     pub shape_rendering: ShapeRendering,

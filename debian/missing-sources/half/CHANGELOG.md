@@ -5,6 +5,21 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 
 ## [Unreleased]
 
+## [2.4.1] - 2024-04-06 <a name="2.4.1"></a>
+### Fixed
+- Missing macro import causing build failure on `no_std` + `alloc` feature set. Fixes [#107].
+- Clippy warning on nightly rust.
+
+## [2.4.0] - 2024-02-25 <a name="2.4.0"></a>
+### Added
+- Optional `rkyv` support. Fixes [#100], by [@comath].
+- New `num-traits` implementations: `AsPrimitive<f16>` for `bf16` and `AsPrimitive<bf16>` for
+  `f16`, allowing lossy conversions between the two types. By [@charles-r-earp].
+- `Cargo.lock` added to vcs as is now recommended for library crates.
+### Fixed
+- Remove some unit NaN conversion sign tests due to non-deterministic hardware. Fixes [#103].
+- Redundant import warnings on nightly Rust.
+
 ## [2.3.1] - 2023-06-24 <a name="2.3.1"></a>
 ### Fixed
 - Compile error on x86 (not x86_64) targets. Fixes [#93].
@@ -312,6 +327,9 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [#66]: https://github.com/starkat99/half-rs/issues/66
 [#54]: https://github.com/starkat99/half-rs/issues/54
 [#93]: https://github.com/starkat99/half-rs/issues/54
+[#100]: https://github.com/starkat99/half-rs/issues/100
+[#103]: https://github.com/starkat99/half-rs/issues/103
+[#107]: https://github.com/starkat99/half-rs/issues/107
 
 [@tspiteri]: https://github.com/tspiteri
 [@PSeitz]: https://github.com/PSeitz
@@ -332,9 +350,12 @@ and this project adheres to [Semantic Versioning](http://semver.org/spec/v2.0.0.
 [@coreylowman]: https://github.com/coreylowman
 [@wx-csy]: https://github.com/wx-csy
 [@eiz]: https://github.com/eiz
+[@comath]: https://github.com/comath
 
 
-[Unreleased]: https://github.com/starkat99/half-rs/compare/v2.3.1...HEAD
+[Unreleased]: https://github.com/starkat99/half-rs/compare/v2.4.1...HEAD
+[2.4.1]: https://github.com/starkat99/half-rs/compare/v2.4.0...v2.4.1
+[2.4.0]: https://github.com/starkat99/half-rs/compare/v2.3.1...v2.4.0
 [2.3.1]: https://github.com/starkat99/half-rs/compare/v2.3.0...v2.3.1
 [2.3.0]: https://github.com/starkat99/half-rs/compare/v2.2.1...v2.3.0
 [2.2.1]: https://github.com/starkat99/half-rs/compare/v2.2.0...v2.2.1

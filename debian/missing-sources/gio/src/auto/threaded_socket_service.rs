@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{SocketConnection, SocketListener, SocketService};
+use crate::{ffi, SocketConnection, SocketListener, SocketService};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -63,7 +63,7 @@ pub trait ThreadedSocketServiceExt: IsA<ThreadedSocketService> + sealed::Sealed 
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"run\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     run_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

@@ -1,22 +1,22 @@
 //! The main context structure which drives the drawing process.
 
 use float_cmp::approx_eq;
+use gio::prelude::*;
 use glib::translate::*;
 use pango::ffi::PangoMatrix;
 use pango::prelude::FontMapExt;
 use regex::{Captures, Regex};
 use std::cell::RefCell;
 use std::convert::TryFrom;
-use std::f64::consts::*;
 use std::rc::Rc;
 use std::{borrow::Cow, sync::OnceLock};
 
 use crate::accept_language::UserLanguage;
-use crate::aspect_ratio::AspectRatio;
 use crate::bbox::BoundingBox;
+use crate::cairo_path::CairoPath;
 use crate::color::color_to_rgba;
 use crate::coord_units::CoordUnits;
-use crate::document::{AcquiredNodes, NodeId};
+use crate::document::{AcquiredNodes, NodeId, RenderingOptions};
 use crate::dpi::Dpi;
 use crate::element::{Element, ElementData};
 use crate::error::{AcquireError, ImplementationLimit, InternalRenderingError};
@@ -24,16 +24,17 @@ use crate::filters::{self, FilterSpec};
 use crate::float_eq_cairo::ApproxEqCairo;
 use crate::gradient::{GradientVariant, SpreadMethod, UserSpaceGradient};
 use crate::layout::{
-    Filter, Image, Layer, LayerKind, Shape, StackingContext, Stroke, Text, TextSpan,
+    self, Filter, Group, Image, Layer, LayerKind, LayoutViewport, Shape, StackingContext, Stroke,
+    Text, TextSpan,
 };
 use crate::length::*;
+use crate::limits;
 use crate::marker;
 use crate::node::{CascadedValues, Node, NodeBorrow, NodeDraw};
 use crate::paint_server::{PaintSource, UserSpacePaintSource};
-use crate::path_builder::*;
 use crate::pattern::UserSpacePattern;
 use crate::properties::{
-    ClipRule, ComputedValues, FillRule, ImageRendering, MaskType, MixBlendMode, Opacity, Overflow,
+    ClipRule, ComputedValues, FillRule, ImageRendering, MaskType, MixBlendMode, Opacity,
     PaintTarget, ShapeRendering, StrokeLinecap, StrokeLinejoin, TextRendering,
 };
 use crate::rect::{rect_to_transform, IRect, Rect};
@@ -54,20 +55,13 @@ pub struct FontOptions {
     options: cairo::FontOptions,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum ClipMode {
-    ClipToViewport,
-    NoClip,
-}
-
 /// Set path on the cairo context, or clear it.
 /// This helper object keeps track whether the path has been set already,
 /// so that it isn't recalculated every so often.
 struct PathHelper<'a> {
     cr: &'a cairo::Context,
     transform: ValidTransform,
-    path: &'a Path,
-    is_square_linecap: bool,
+    cairo_path: &'a CairoPath,
     has_path: Option<bool>,
 }
 
@@ -75,14 +69,12 @@ impl<'a> PathHelper<'a> {
     pub fn new(
         cr: &'a cairo::Context,
         transform: ValidTransform,
-        path: &'a Path,
-        linecap: StrokeLinecap,
+        cairo_path: &'a CairoPath,
     ) -> Self {
         PathHelper {
             cr,
             transform,
-            path,
-            is_square_linecap: linecap == StrokeLinecap::Square,
+            cairo_path,
             has_path: None,
         }
     }
@@ -92,7 +84,7 @@ impl<'a> PathHelper<'a> {
             Some(false) | None => {
                 self.has_path = Some(true);
                 self.cr.set_matrix(self.transform.into());
-                self.path.to_cairo(self.cr, self.is_square_linecap)
+                self.cairo_path.to_cairo_context(self.cr)
             }
             Some(true) => Ok(()),
         }
@@ -118,7 +110,7 @@ pub struct Viewport {
     pub vbox: ViewBox,
 
     /// The viewport's coordinate system, or "user coordinate system" in SVG terms.
-    transform: Transform,
+    pub transform: Transform,
 }
 
 impl Viewport {
@@ -166,6 +158,25 @@ impl Viewport {
             transform: self.transform,
         }
     }
+
+    pub fn with_composed_transform(&self, transform: Transform) -> Viewport {
+        Viewport {
+            dpi: self.dpi,
+            vbox: self.vbox,
+            transform: self.transform.pre_transform(&transform),
+        }
+    }
+}
+
+/// Values that stay constant during rendering with a DrawingCtx.
+#[derive(Clone)]
+pub struct RenderingConfiguration {
+    pub dpi: Dpi,
+    pub cancellable: Option<gio::Cancellable>,
+    pub user_language: UserLanguage,
+    pub svg_nesting: SvgNesting,
+    pub measuring: bool,
+    pub testing: bool,
 }
 
 pub struct DrawingCtx {
@@ -173,19 +184,18 @@ pub struct DrawingCtx {
 
     initial_viewport: Viewport,
 
-    dpi: Dpi,
-
     cr_stack: Rc<RefCell<Vec<cairo::Context>>>,
     cr: cairo::Context,
 
-    user_language: UserLanguage,
-
     drawsub_stack: Vec<Node>,
 
-    svg_nesting: SvgNesting,
+    config: RenderingConfiguration,
 
-    measuring: bool,
-    testing: bool,
+    /// Depth of nested layers while drawing.
+    ///
+    /// We use this to set a hard limit on how many nested layers there can be, to avoid
+    /// malicious SVGs that would cause unbounded stack consumption.
+    recursion_depth: u16,
 }
 
 pub enum DrawingMode {
@@ -216,11 +226,7 @@ pub fn draw_tree(
     mode: DrawingMode,
     cr: &cairo::Context,
     viewport_rect: Rect,
-    user_language: &UserLanguage,
-    dpi: Dpi,
-    svg_nesting: SvgNesting,
-    measuring: bool,
-    testing: bool,
+    config: RenderingConfiguration,
     acquired_nodes: &mut AcquiredNodes<'_>,
 ) -> Result<BoundingBox, InternalRenderingError> {
     let (drawsub_stack, node) = match mode {
@@ -261,22 +267,12 @@ pub fn draw_tree(
     // Per the spec, so the viewport has (0, 0) as upper-left.
     let viewport_rect = viewport_rect.translate((-viewport_rect.x0, -viewport_rect.y0));
     let initial_viewport = Viewport {
-        dpi,
+        dpi: config.dpi,
         vbox: ViewBox::from(viewport_rect),
         transform,
     };
 
-    let mut draw_ctx = DrawingCtx::new(
-        session,
-        cr,
-        &initial_viewport,
-        user_language.clone(),
-        dpi,
-        svg_nesting,
-        measuring,
-        testing,
-        drawsub_stack,
-    );
+    let mut draw_ctx = DrawingCtx::new(session, cr, &initial_viewport, config, drawsub_stack);
 
     let content_bbox = draw_ctx.draw_node_from_stack(
         &node,
@@ -288,7 +284,11 @@ pub fn draw_tree(
 
     user_bbox.insert(&content_bbox);
 
-    Ok(user_bbox)
+    if draw_ctx.is_rendering_cancelled() {
+        Err(InternalRenderingError::Cancelled)
+    } else {
+        Ok(user_bbox)
+    }
 }
 
 pub fn with_saved_cr<O, F>(cr: &cairo::Context, f: F) -> Result<O, InternalRenderingError>
@@ -319,24 +319,17 @@ impl DrawingCtx {
         session: Session,
         cr: &cairo::Context,
         initial_viewport: &Viewport,
-        user_language: UserLanguage,
-        dpi: Dpi,
-        svg_nesting: SvgNesting,
-        measuring: bool,
-        testing: bool,
+        config: RenderingConfiguration,
         drawsub_stack: Vec<Node>,
     ) -> DrawingCtx {
         DrawingCtx {
             session,
             initial_viewport: initial_viewport.clone(),
-            dpi,
             cr_stack: Rc::new(RefCell::new(Vec::new())),
             cr: cr.clone(),
-            user_language,
             drawsub_stack,
-            svg_nesting,
-            measuring,
-            testing,
+            config,
+            recursion_depth: 0,
         }
     }
 
@@ -346,31 +339,39 @@ impl DrawingCtx {
     /// would like to use that same state but on a different Cairo surface and context
     /// than the ones being used on `self`.  This function copies the `self` state into a
     /// new `DrawingCtx`, and ties the copied one to the supplied `cr`.
-    fn nested(&self, cr: cairo::Context) -> DrawingCtx {
+    fn nested(&self, cr: cairo::Context) -> Box<DrawingCtx> {
         let cr_stack = self.cr_stack.clone();
 
         cr_stack.borrow_mut().push(self.cr.clone());
 
-        DrawingCtx {
+        Box::new(DrawingCtx {
             session: self.session.clone(),
             initial_viewport: self.initial_viewport.clone(),
-            dpi: self.dpi,
             cr_stack,
             cr,
-            user_language: self.user_language.clone(),
             drawsub_stack: self.drawsub_stack.clone(),
-            svg_nesting: self.svg_nesting,
-            measuring: self.measuring,
-            testing: self.testing,
-        }
+            config: self.config.clone(),
+            recursion_depth: self.recursion_depth,
+        })
     }
 
     pub fn session(&self) -> &Session {
         &self.session
     }
 
+    /// Returns the `RenderingOptions` being used for rendering.
+    pub fn rendering_options(&self, svg_nesting: SvgNesting) -> RenderingOptions {
+        RenderingOptions {
+            dpi: self.config.dpi,
+            cancellable: self.config.cancellable.clone(),
+            user_language: self.config.user_language.clone(),
+            svg_nesting,
+            testing: self.config.testing,
+        }
+    }
+
     pub fn user_language(&self) -> &UserLanguage {
-        &self.user_language
+        &self.config.user_language
     }
 
     pub fn toplevel_viewport(&self) -> Rect {
@@ -401,15 +402,15 @@ impl DrawingCtx {
     }
 
     pub fn svg_nesting(&self) -> SvgNesting {
-        self.svg_nesting
+        self.config.svg_nesting
     }
 
     pub fn is_measuring(&self) -> bool {
-        self.measuring
+        self.config.measuring
     }
 
     pub fn is_testing(&self) -> bool {
-        self.testing
+        self.config.testing
     }
 
     pub fn get_transform(&self) -> ValidTransform {
@@ -468,17 +469,21 @@ impl DrawingCtx {
     pub fn push_new_viewport(
         &self,
         current_viewport: &Viewport,
-        vbox: Option<ViewBox>,
-        viewport_rect: Rect,
-        preserve_aspect_ratio: AspectRatio,
-        clip_mode: ClipMode,
+        layout_viewport: &LayoutViewport,
     ) -> Option<Viewport> {
-        if let ClipMode::ClipToViewport = clip_mode {
-            clip_to_rectangle(&self.cr, &viewport_rect);
+        let LayoutViewport {
+            geometry,
+            vbox,
+            preserve_aspect_ratio,
+            overflow,
+        } = *layout_viewport;
+
+        if !overflow.overflow_allowed() || (vbox.is_some() && preserve_aspect_ratio.is_slice()) {
+            clip_to_rectangle(&self.cr, &geometry);
         }
 
         preserve_aspect_ratio
-            .viewport_to_viewbox_transform(vbox, &viewport_rect)
+            .viewport_to_viewbox_transform(vbox, &geometry)
             .unwrap_or_else(|_e| {
                 match vbox {
                     None => unreachable!(
@@ -498,12 +503,13 @@ impl DrawingCtx {
                 None
             })
             .map(|t| {
+                // FMQ: here
                 self.cr.transform(t.into());
 
                 Viewport {
-                    dpi: self.dpi,
+                    dpi: self.config.dpi,
                     vbox: vbox.unwrap_or(current_viewport.vbox),
-                    transform: current_viewport.transform.post_transform(&t),
+                    transform: current_viewport.transform.pre_transform(&t),
                 }
             })
     }
@@ -530,6 +536,7 @@ impl DrawingCtx {
             let transform_for_clip = ValidTransform::try_from(node_transform)?;
 
             let orig_transform = self.get_transform();
+            // FMQ: here
             self.cr.transform(transform_for_clip.into());
 
             for child in node.children().filter(|c| {
@@ -627,18 +634,19 @@ impl DrawingCtx {
                 mask_cr.transform(ValidTransform::try_from(bbtransform)?.into());
             }
 
+            // FMQ: above - and here, the mask_viewport need the new bbtransform composed too
             let mask_viewport = viewport.with_units(mask.get_content_units());
 
             let mut mask_draw_ctx = self.nested(mask_cr);
 
-            let stacking_ctx = StackingContext::new(
+            let stacking_ctx = Box::new(StackingContext::new(
                 self.session(),
                 acquired_nodes,
                 &mask_element,
                 Transform::identity(),
                 None,
                 values,
-            );
+            ));
 
             rsvg_log!(self.session, "(mask {}", mask_element);
 
@@ -646,8 +654,11 @@ impl DrawingCtx {
                 &stacking_ctx,
                 acquired_nodes,
                 &mask_viewport,
+                None,
                 false,
-                &mut |an, dc| mask_node.draw_children(an, &cascaded, &mask_viewport, dc, false),
+                &mut |an, dc, new_viewport| {
+                    mask_node.draw_children(an, &cascaded, new_viewport, dc, false)
+                },
             );
 
             rsvg_log!(self.session, ")");
@@ -667,24 +678,139 @@ impl DrawingCtx {
         Ok(Some(mask))
     }
 
-    pub fn with_discrete_layer(
+    fn is_rendering_cancelled(&self) -> bool {
+        match &self.config.cancellable {
+            None => false,
+            Some(cancellable) => cancellable.is_cancelled(),
+        }
+    }
+
+    /// Checks whether the rendering has been cancelled in the middle.
+    ///
+    /// If so, returns an Err.  This is used from [`DrawingCtx::with_discrete_layer`] to
+    /// exit early instead of proceeding with rendering.
+    fn check_cancellation(&self) -> Result<(), InternalRenderingError> {
+        if self.is_rendering_cancelled() {
+            return Err(InternalRenderingError::Cancelled);
+        }
+
+        Ok(())
+    }
+
+    fn check_layer_nesting_depth(&mut self) -> Result<(), InternalRenderingError> {
+        if self.recursion_depth > limits::MAX_LAYER_NESTING_DEPTH {
+            return Err(InternalRenderingError::LimitExceeded(
+                ImplementationLimit::MaximumLayerNestingDepthExceeded,
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn filter_current_surface(
+        &mut self,
+        acquired_nodes: &mut AcquiredNodes<'_>,
+        filter: &Filter,
+        viewport: &Viewport,
+        element_name: &str,
+        bbox: &BoundingBox,
+    ) -> Result<cairo::Surface, InternalRenderingError> {
+        let surface_to_filter = SharedImageSurface::copy_from_surface(
+            &cairo::ImageSurface::try_from(self.cr.target()).unwrap(),
+        )?;
+
+        let stroke_paint_source = Rc::new(filter.stroke_paint_source.to_user_space(
+            &bbox.rect,
+            viewport,
+            &filter.normalize_values,
+        ));
+        let fill_paint_source = Rc::new(filter.fill_paint_source.to_user_space(
+            &bbox.rect,
+            viewport,
+            &filter.normalize_values,
+        ));
+
+        // Filter functions (like "blend()", not the <filter> element) require
+        // being resolved in userSpaceonUse units, since that is the default
+        // for primitive_units.  So, get the corresponding NormalizeParams
+        // here and pass them down.
+        let user_space_params = NormalizeParams::from_values(
+            &filter.normalize_values,
+            &viewport.with_units(CoordUnits::UserSpaceOnUse),
+        );
+
+        let filtered_surface = self
+            .run_filters(
+                viewport,
+                surface_to_filter,
+                filter,
+                acquired_nodes,
+                element_name,
+                &user_space_params,
+                stroke_paint_source,
+                fill_paint_source,
+                bbox,
+            )?
+            .into_image_surface()?;
+
+        let generic_surface: &cairo::Surface = &filtered_surface; // deref to Surface
+
+        Ok(generic_surface.clone())
+    }
+
+    fn draw_in_optional_new_viewport(
+        &mut self,
+        acquired_nodes: &mut AcquiredNodes<'_>,
+        viewport: &Viewport,
+        layout_viewport: &Option<LayoutViewport>,
+        draw_fn: &mut dyn FnMut(
+            &mut AcquiredNodes<'_>,
+            &mut DrawingCtx,
+            &Viewport,
+        ) -> Result<BoundingBox, InternalRenderingError>,
+    ) -> Result<BoundingBox, InternalRenderingError> {
+        if let Some(layout_viewport) = layout_viewport.as_ref() {
+            // FIXME: here we ignore the Some() result of push_new_viewport().  We do that because
+            // the returned one is just a copy of the one that got passeed in, but with a changed
+            // transform.  However, we are in fact not using that transform anywhere!
+            //
+            // In case push_new_viewport() returns None, we just don't draw anything.
+            //
+            // Note that push_new_viewport() changes the cr's transform.  However it will be restored
+            // at the end of this function with set_matrix.
+            if let Some(new_viewport) = self.push_new_viewport(viewport, layout_viewport) {
+                draw_fn(acquired_nodes, self, &new_viewport)
+            } else {
+                Ok(self.empty_bbox())
+            }
+        } else {
+            draw_fn(acquired_nodes, self, viewport)
+        }
+    }
+
+    fn draw_layer_internal(
         &mut self,
         stacking_ctx: &StackingContext,
         acquired_nodes: &mut AcquiredNodes<'_>,
         viewport: &Viewport,
+        layout_viewport: Option<LayoutViewport>,
         clipping: bool,
         draw_fn: &mut dyn FnMut(
             &mut AcquiredNodes<'_>,
             &mut DrawingCtx,
+            &Viewport,
         ) -> Result<BoundingBox, InternalRenderingError>,
     ) -> Result<BoundingBox, InternalRenderingError> {
         let stacking_ctx_transform = ValidTransform::try_from(stacking_ctx.transform)?;
 
         let orig_transform = self.get_transform();
+
+        // See the comment above about "not using that transform anywhere" (the viewport's).
+        let viewport = viewport.with_composed_transform(stacking_ctx.transform);
         self.cr.transform(stacking_ctx_transform.into());
 
         let res = if clipping {
-            draw_fn(acquired_nodes, self)
+            self.draw_in_optional_new_viewport(acquired_nodes, &viewport, &layout_viewport, draw_fn)
         } else {
             with_saved_cr(&self.cr.clone(), || {
                 if let Some(ref link_target) = stacking_ctx.link_target {
@@ -703,7 +829,7 @@ impl DrawingCtx {
                 self.clip_to_node(
                     &stacking_ctx.clip_in_user_space,
                     acquired_nodes,
-                    viewport,
+                    &viewport,
                     &self.empty_bbox(),
                 )?;
 
@@ -712,11 +838,11 @@ impl DrawingCtx {
                 let res = if should_isolate {
                     // Compute our assortment of affines
 
-                    let affines = CompositingAffines::new(
+                    let affines = Box::new(CompositingAffines::new(
                         *affine_at_start,
                         self.initial_viewport.transform,
                         self.cr_stack.borrow().len(),
-                    );
+                    ));
 
                     // Create temporary surface and its cr
 
@@ -733,11 +859,18 @@ impl DrawingCtx {
                     cr.set_matrix(ValidTransform::try_from(affines.for_temporary_surface)?.into());
 
                     let (source_surface, mut res, bbox) = {
-                        let mut temporary_draw_ctx = self.nested(cr);
+                        let mut temporary_draw_ctx = self.nested(cr.clone());
 
                         // Draw!
 
-                        let res = draw_fn(acquired_nodes, &mut temporary_draw_ctx);
+                        let res = with_saved_cr(&cr, || {
+                            temporary_draw_ctx.draw_in_optional_new_viewport(
+                                acquired_nodes,
+                                &viewport,
+                                &layout_viewport,
+                                draw_fn,
+                            )
+                        });
 
                         let bbox = if let Ok(ref bbox) = res {
                             *bbox
@@ -746,50 +879,19 @@ impl DrawingCtx {
                         };
 
                         if let Some(ref filter) = stacking_ctx.filter {
-                            let surface_to_filter = SharedImageSurface::copy_from_surface(
-                                &cairo::ImageSurface::try_from(temporary_draw_ctx.cr.target())
-                                    .unwrap(),
+                            let filtered_surface = temporary_draw_ctx.filter_current_surface(
+                                acquired_nodes,
+                                filter,
+                                &viewport,
+                                &stacking_ctx.element_name,
+                                &bbox,
                             )?;
 
-                            let stroke_paint_source =
-                                Rc::new(filter.stroke_paint_source.to_user_space(
-                                    &bbox.rect,
-                                    viewport,
-                                    &filter.normalize_values,
-                                ));
-                            let fill_paint_source =
-                                Rc::new(filter.fill_paint_source.to_user_space(
-                                    &bbox.rect,
-                                    viewport,
-                                    &filter.normalize_values,
-                                ));
-
-                            // Filter functions (like "blend()", not the <filter> element) require
-                            // being resolved in userSpaceonUse units, since that is the default
-                            // for primitive_units.  So, get the corresponding NormalizeParams
-                            // here and pass them down.
-                            let user_space_params = NormalizeParams::from_values(
-                                &filter.normalize_values,
-                                &viewport.with_units(CoordUnits::UserSpaceOnUse),
-                            );
-
-                            let filtered_surface = temporary_draw_ctx
-                                .run_filters(
-                                    viewport,
-                                    surface_to_filter,
-                                    filter,
-                                    acquired_nodes,
-                                    &stacking_ctx.element_name,
-                                    &user_space_params,
-                                    stroke_paint_source,
-                                    fill_paint_source,
-                                    bbox,
-                                )?
-                                .into_image_surface()?;
-
-                            let generic_surface: &cairo::Surface = &filtered_surface; // deref to Surface
-
-                            (generic_surface.clone(), res, bbox)
+                            // FIXME: "res" was declared mutable above so that we could overwrite it
+                            // with the result of filtering, so that if filtering produces an error,
+                            // then the masking below wouldn't take place.  Test for that and fix this;
+                            // we are *not* modifying res in case of error.
+                            (filtered_surface, res, bbox)
                         } else {
                             (temporary_draw_ctx.cr.target(), res, bbox)
                         }
@@ -809,7 +911,7 @@ impl DrawingCtx {
                     self.clip_to_node(
                         &stacking_ctx.clip_in_object_space,
                         acquired_nodes,
-                        viewport,
+                        &viewport,
                         &bbox,
                     )?;
 
@@ -819,7 +921,7 @@ impl DrawingCtx {
                         res = res.and_then(|bbox| {
                             self.generate_cairo_mask(
                                 mask_node,
-                                viewport,
+                                &viewport,
                                 affines.for_temporary_surface,
                                 &bbox,
                                 acquired_nodes,
@@ -859,7 +961,12 @@ impl DrawingCtx {
                     self.cr.set_matrix(affine_at_start.into());
                     res
                 } else {
-                    draw_fn(acquired_nodes, self)
+                    self.draw_in_optional_new_viewport(
+                        acquired_nodes,
+                        &viewport,
+                        &layout_viewport,
+                        draw_fn,
+                    )
                 };
 
                 if stacking_ctx.link_target.is_some() {
@@ -872,6 +979,42 @@ impl DrawingCtx {
 
         self.cr.set_matrix(orig_transform.into());
         res
+    }
+
+    pub fn with_discrete_layer(
+        &mut self,
+        stacking_ctx: &StackingContext,
+        acquired_nodes: &mut AcquiredNodes<'_>,
+        viewport: &Viewport,
+        layout_viewport: Option<LayoutViewport>,
+        clipping: bool,
+        draw_fn: &mut dyn FnMut(
+            &mut AcquiredNodes<'_>,
+            &mut DrawingCtx,
+            &Viewport,
+        ) -> Result<BoundingBox, InternalRenderingError>,
+    ) -> Result<BoundingBox, InternalRenderingError> {
+        self.check_cancellation()?;
+
+        self.recursion_depth += 1;
+
+        match self.check_layer_nesting_depth() {
+            Ok(()) => {
+                let res = self.draw_layer_internal(
+                    stacking_ctx,
+                    acquired_nodes,
+                    viewport,
+                    layout_viewport,
+                    clipping,
+                    draw_fn,
+                );
+
+                self.recursion_depth -= 1;
+                res
+            }
+
+            Err(e) => Err(e),
+        }
     }
 
     /// Run the drawing function with the specified opacity
@@ -917,7 +1060,7 @@ impl DrawingCtx {
         user_space_params: &NormalizeParams,
         stroke_paint_source: Rc<UserSpacePaintSource>,
         fill_paint_source: Rc<UserSpacePaintSource>,
-        node_bbox: BoundingBox,
+        node_bbox: &BoundingBox,
     ) -> Result<SharedImageSurface, InternalRenderingError> {
         let session = self.session();
 
@@ -1081,7 +1224,7 @@ impl DrawingCtx {
             let mut pattern_draw_ctx = self.nested(cr_pattern);
 
             let pattern_viewport = Viewport {
-                dpi: self.dpi,
+                dpi: self.config.dpi,
                 vbox: ViewBox::from(Rect::from_size(pattern.width, pattern.height)),
                 transform: *transform,
             };
@@ -1093,25 +1236,26 @@ impl DrawingCtx {
 
                     let elt = pattern_node.borrow_element();
 
-                    let stacking_ctx = StackingContext::new(
+                    let stacking_ctx = Box::new(StackingContext::new(
                         self.session(),
                         acquired_nodes,
                         &elt,
                         Transform::identity(),
                         None,
                         pattern_values,
-                    );
+                    ));
 
                     dc.with_discrete_layer(
                         &stacking_ctx,
                         acquired_nodes,
                         &pattern_viewport,
+                        None,
                         false,
-                        &mut |an, dc| {
+                        &mut |an, dc, new_viewport| {
                             pattern_node.draw_children(
                                 an,
                                 &pattern_cascaded,
-                                &pattern_viewport,
+                                new_viewport,
                                 dc,
                                 false,
                             )
@@ -1217,23 +1361,6 @@ impl DrawingCtx {
         Ok(())
     }
 
-    pub fn compute_path_extents(
-        &self,
-        path: &Path,
-    ) -> Result<Option<Rect>, InternalRenderingError> {
-        if path.is_empty() {
-            return Ok(None);
-        }
-
-        let surface = cairo::RecordingSurface::create(cairo::Content::ColorAlpha, None)?;
-        let cr = cairo::Context::new(&surface)?;
-
-        path.to_cairo(&cr, false)?;
-        let (x0, y0, x1, y1) = cr.path_extents()?;
-
-        Ok(Some(Rect::new(x0, y0, x1, y1)))
-    }
-
     pub fn draw_layer(
         &mut self,
         layer: &Layer,
@@ -1263,6 +1390,13 @@ impl DrawingCtx {
                 clipping,
                 viewport,
             ),
+            LayerKind::Group(group) => self.draw_group(
+                group,
+                &layer.stacking_ctx,
+                acquired_nodes,
+                clipping,
+                viewport,
+            ),
         }
     }
 
@@ -1274,21 +1408,29 @@ impl DrawingCtx {
         clipping: bool,
         viewport: &Viewport,
     ) -> Result<BoundingBox, InternalRenderingError> {
-        if shape.extents.is_none() {
-            return Ok(self.empty_bbox());
-        }
+        let (cairo_path, stroke_paint, fill_paint) = match &shape.path {
+            layout::Path::Validated {
+                cairo_path,
+                extents: Some(_),
+                stroke_paint,
+                fill_paint,
+                ..
+            } => (cairo_path, stroke_paint, fill_paint),
+            layout::Path::Validated { extents: None, .. } => return Ok(self.empty_bbox()),
+            layout::Path::Invalid(_) => return Ok(self.empty_bbox()),
+        };
 
         self.with_discrete_layer(
             stacking_ctx,
             acquired_nodes,
             viewport,
+            None,
             clipping,
-            &mut |an, dc| {
+            &mut |an, dc, new_viewport| {
                 let cr = dc.cr.clone();
 
                 let transform = dc.get_transform_for_stacking_ctx(stacking_ctx, clipping)?;
-                let mut path_helper =
-                    PathHelper::new(&cr, transform, &shape.path, shape.stroke.line_cap);
+                let mut path_helper = PathHelper::new(&cr, transform, cairo_path);
 
                 if clipping {
                     if shape.is_visible {
@@ -1308,7 +1450,7 @@ impl DrawingCtx {
                 let bbox = compute_stroke_and_fill_box(
                     &cr,
                     &shape.stroke,
-                    &shape.stroke_paint,
+                    stroke_paint,
                     &dc.initial_viewport,
                 )?;
 
@@ -1319,7 +1461,7 @@ impl DrawingCtx {
                         match target {
                             PaintTarget::Fill => {
                                 path_helper.set()?;
-                                dc.fill(&cr, an, &shape.fill_paint)?;
+                                dc.fill(&cr, an, fill_paint)?;
                             }
 
                             PaintTarget::Stroke => {
@@ -1334,7 +1476,7 @@ impl DrawingCtx {
                                 } else {
                                     None
                                 };
-                                dc.stroke(&cr, an, &shape.stroke_paint)?;
+                                dc.stroke(&cr, an, stroke_paint)?;
                                 if let Some(matrix) = backup_matrix {
                                     cr.set_matrix(matrix);
                                 }
@@ -1343,7 +1485,11 @@ impl DrawingCtx {
                             PaintTarget::Markers => {
                                 path_helper.unset();
                                 marker::render_markers_for_shape(
-                                    shape, viewport, dc, an, clipping,
+                                    shape,
+                                    new_viewport,
+                                    dc,
+                                    an,
+                                    clipping,
                                 )?;
                             }
                         }
@@ -1404,49 +1550,49 @@ impl DrawingCtx {
         let image_height = f64::from(image_height);
         let vbox = ViewBox::from(Rect::from_size(image_width, image_height));
 
-        let clip_mode = if !(image.overflow == Overflow::Auto
-            || image.overflow == Overflow::Visible)
-            && image.aspect.is_slice()
-        {
-            ClipMode::ClipToViewport
-        } else {
-            ClipMode::NoClip
-        };
-
         // The bounding box for <image> is decided by the values of the image's x, y, w, h
         // and not by the final computed image bounds.
         let bounds = self.empty_bbox().with_rect(image.rect);
+
+        let layout_viewport = LayoutViewport {
+            vbox: Some(vbox),
+            geometry: image.rect,
+            preserve_aspect_ratio: image.aspect,
+            overflow: image.overflow,
+        };
 
         if image.is_visible {
             self.with_discrete_layer(
                 stacking_ctx,
                 acquired_nodes,
-                viewport, // FIXME: should this be the push_new_viewport below?
+                viewport,
+                Some(layout_viewport),
                 clipping,
-                &mut |_an, dc| {
-                    with_saved_cr(&dc.cr.clone(), || {
-                        if let Some(_params) = dc.push_new_viewport(
-                            viewport,
-                            Some(vbox),
-                            image.rect,
-                            image.aspect,
-                            clip_mode,
-                        ) {
-                            dc.paint_surface(
-                                &image.surface,
-                                image_width,
-                                image_height,
-                                image.image_rendering,
-                            )?;
-                        }
+                &mut |_an, dc, _new_viewport| {
+                    dc.paint_surface(
+                        &image.surface,
+                        image_width,
+                        image_height,
+                        image.image_rendering,
+                    )?;
 
-                        Ok(bounds)
-                    })
+                    Ok(bounds)
                 },
             )
         } else {
             Ok(bounds)
         }
+    }
+
+    fn draw_group(
+        &mut self,
+        _group: &Group,
+        _stacking_ctx: &StackingContext,
+        _acquired_nodes: &mut AcquiredNodes<'_>,
+        _clipping: bool,
+        _viewport: &Viewport,
+    ) -> Result<BoundingBox, InternalRenderingError> {
+        unimplemented!()
     }
 
     fn draw_text_span(
@@ -1455,7 +1601,7 @@ impl DrawingCtx {
         acquired_nodes: &mut AcquiredNodes<'_>,
         clipping: bool,
     ) -> Result<BoundingBox, InternalRenderingError> {
-        let path = pango_layout_to_path(span.x, span.y, &span.layout, span.gravity)?;
+        let path = pango_layout_to_cairo_path(span.x, span.y, &span.layout, span.gravity)?;
         if path.is_empty() {
             // Empty strings, or only-whitespace text, get turned into empty paths.
             // In that case, we really want to return "no bounds" rather than an
@@ -1475,11 +1621,11 @@ impl DrawingCtx {
             setup_cr_for_stroke(&self.cr, &span.stroke);
 
             if clipping {
-                path.to_cairo(&self.cr, false)?;
+                path.to_cairo_context(&self.cr)?;
                 return Ok(self.empty_bbox());
             }
 
-            path.to_cairo(&self.cr, false)?;
+            path.to_cairo_context(&self.cr)?;
             let bbox = compute_stroke_and_fill_box(
                 &self.cr,
                 &span.stroke,
@@ -1501,7 +1647,7 @@ impl DrawingCtx {
 
                             if had_paint_server {
                                 if can_use_text_as_path {
-                                    path.to_cairo(&self.cr, false)?;
+                                    path.to_cairo_context(&self.cr)?;
                                     self.cr.fill()?;
                                     self.cr.new_path();
                                 } else {
@@ -1527,7 +1673,7 @@ impl DrawingCtx {
                                 self.set_paint_source(&span.stroke_paint, acquired_nodes)?;
 
                             if had_paint_server {
-                                path.to_cairo(&self.cr, false)?;
+                                path.to_cairo_context(&self.cr)?;
                                 self.cr.stroke()?;
                                 self.cr.new_path();
                             }
@@ -1558,8 +1704,9 @@ impl DrawingCtx {
             stacking_ctx,
             acquired_nodes,
             viewport,
+            None,
             clipping,
-            &mut |an, dc| {
+            &mut |an, dc, _new_viewport| {
                 let mut bbox = dc.empty_bbox();
 
                 for span in &text.spans {
@@ -1607,7 +1754,7 @@ impl DrawingCtx {
                 );
 
                 cr.set_matrix(ValidTransform::try_from(affines.for_snapshot)?.into());
-                cr.set_source_surface(&draw.target(), 0.0, 0.0)?;
+                cr.set_source_surface(draw.target(), 0.0, 0.0)?;
                 cr.paint()?;
             }
 
@@ -1636,7 +1783,7 @@ impl DrawingCtx {
 
             self.cr = cr;
             let viewport = Viewport {
-                dpi: self.dpi,
+                dpi: self.config.dpi,
                 transform: affine,
                 vbox: ViewBox::from(Rect::from_size(f64::from(width), f64::from(height))),
             };
@@ -1700,9 +1847,9 @@ impl DrawingCtx {
         let _self_acquired = match acquired_nodes.acquire_ref(node) {
             Ok(n) => n,
 
-            Err(AcquireError::CircularReference(_)) => {
-                rsvg_log!(self.session, "circular reference in element {}", node);
-                return Ok(self.empty_bbox());
+            Err(AcquireError::CircularReference(circular)) => {
+                rsvg_log!(self.session, "circular reference in element {}", circular);
+                return Err(InternalRenderingError::CircularReference(circular));
             }
 
             _ => unreachable!(),
@@ -1711,9 +1858,14 @@ impl DrawingCtx {
         let acquired = match acquired_nodes.acquire(link) {
             Ok(acquired) => acquired,
 
-            Err(AcquireError::CircularReference(node)) => {
-                rsvg_log!(self.session, "circular reference in element {}", node);
-                return Ok(self.empty_bbox());
+            Err(AcquireError::CircularReference(circular)) => {
+                rsvg_log!(
+                    self.session,
+                    "circular reference from {} to element {}",
+                    node,
+                    circular
+                );
+                return Err(InternalRenderingError::CircularReference(circular));
             }
 
             Err(AcquireError::MaxReferencesExceeded) => {
@@ -1749,6 +1901,7 @@ impl DrawingCtx {
 
         let orig_transform = self.get_transform();
 
+        // FMQ: here
         self.cr
             .transform(ValidTransform::try_from(values.transform())?.into());
 
@@ -1764,7 +1917,7 @@ impl DrawingCtx {
             None
         };
 
-        let res = if let Some((viewbox, preserve_aspect_ratio)) = defines_a_viewport {
+        let res = if let Some((vbox, preserve_aspect_ratio)) = defines_a_viewport {
             // <symbol> and <svg> define a viewport, as described in the specification:
             // https://www.w3.org/TR/SVG2/struct.html#UseElement
             // https://gitlab.gnome.org/GNOME/librsvg/-/issues/875#note_1482705
@@ -1773,70 +1926,62 @@ impl DrawingCtx {
 
             let child_values = elt.get_computed_values();
 
-            // FIXME: do we need to look at preserveAspectRatio.slice, like in draw_image()?
-            let clip_mode = if !child_values.is_overflow() {
-                ClipMode::ClipToViewport
-            } else {
-                ClipMode::NoClip
-            };
-
-            let stacking_ctx = StackingContext::new(
+            let stacking_ctx = Box::new(StackingContext::new(
                 self.session(),
                 acquired_nodes,
                 &use_element,
                 Transform::identity(),
                 None,
                 values,
-            );
+            ));
+
+            let layout_viewport = LayoutViewport {
+                vbox,
+                geometry: use_rect,
+                preserve_aspect_ratio,
+                overflow: child_values.overflow(),
+            };
 
             self.with_discrete_layer(
                 &stacking_ctx,
                 acquired_nodes,
-                viewport, // FIXME: should this be the child_viewport from below?
+                viewport,
+                Some(layout_viewport),
                 clipping,
-                &mut |an, dc| {
-                    if let Some(child_viewport) = dc.push_new_viewport(
-                        viewport,
-                        viewbox,
-                        use_rect,
-                        preserve_aspect_ratio,
-                        clip_mode,
-                    ) {
-                        child.draw_children(
-                            an,
-                            &CascadedValues::new_from_values(
-                                child,
-                                values,
-                                Some(fill_paint.clone()),
-                                Some(stroke_paint.clone()),
-                            ),
-                            &child_viewport,
-                            dc,
-                            clipping,
-                        )
-                    } else {
-                        Ok(dc.empty_bbox())
-                    }
+                &mut |an, dc, new_viewport| {
+                    child.draw_children(
+                        an,
+                        &CascadedValues::new_from_values(
+                            child,
+                            values,
+                            Some(fill_paint.clone()),
+                            Some(stroke_paint.clone()),
+                        ),
+                        new_viewport,
+                        dc,
+                        clipping,
+                    )
                 },
             )
         } else {
             // otherwise the referenced node is not a <symbol>; process it generically
 
-            let stacking_ctx = StackingContext::new(
+            let stacking_ctx = Box::new(StackingContext::new(
                 self.session(),
                 acquired_nodes,
                 &use_element,
                 Transform::new_translate(use_rect.x0, use_rect.y0),
                 None,
                 values,
-            );
+            ));
 
             self.with_discrete_layer(
                 &stacking_ctx,
                 acquired_nodes,
                 viewport,
+                None,
                 clipping,
-                &mut |an, dc| {
+                &mut |an, dc, new_viewport| {
                     child.draw(
                         an,
                         &CascadedValues::new_from_values(
@@ -1845,7 +1990,7 @@ impl DrawingCtx {
                             Some(fill_paint.clone()),
                             Some(stroke_paint.clone()),
                         ),
-                        viewport,
+                        new_viewport,
                         dc,
                         clipping,
                     )
@@ -1869,7 +2014,7 @@ impl DrawingCtx {
     /// You can use the font options later with create_pango_context().
     pub fn get_font_options(&self) -> FontOptions {
         let mut options = cairo::FontOptions::new().unwrap();
-        if self.testing {
+        if self.config.testing {
             options.set_antialias(cairo::Antialias::Gray);
         }
 
@@ -1978,20 +2123,20 @@ fn pango_layout_to_cairo(
     cr.set_matrix(matrix);
 }
 
-/// Converts a Pango layout to a Path starting at (x, y).
-pub fn pango_layout_to_path(
+/// Converts a Pango layout to a CairoPath starting at (x, y).
+fn pango_layout_to_cairo_path(
     x: f64,
     y: f64,
     layout: &pango::Layout,
     gravity: pango::Gravity,
-) -> Result<Path, InternalRenderingError> {
+) -> Result<CairoPath, InternalRenderingError> {
     let surface = cairo::RecordingSurface::create(cairo::Content::ColorAlpha, None)?;
     let cr = cairo::Context::new(&surface)?;
 
     pango_layout_to_cairo(x, y, layout, gravity, &cr);
 
     let cairo_path = cr.copy_path()?;
-    Ok(Path::from_cairo(cairo_path))
+    Ok(CairoPath::from_cairo(cairo_path))
 }
 
 // https://www.w3.org/TR/css-masking-1/#ClipPathElement
@@ -2330,152 +2475,4 @@ pub struct PathExtents {
 
     /// Extents for the stroked path, or `None` if the path is empty or zero-width.
     pub stroke: Option<Rect>,
-}
-
-impl Path {
-    pub fn to_cairo(
-        &self,
-        cr: &cairo::Context,
-        is_square_linecap: bool,
-    ) -> Result<(), InternalRenderingError> {
-        assert!(!self.is_empty());
-
-        for subpath in self.iter_subpath() {
-            // If a subpath is empty and the linecap is a square, then draw a square centered on
-            // the origin of the subpath. See #165.
-            if is_square_linecap {
-                let (x, y) = subpath.origin();
-                if subpath.is_zero_length() {
-                    let stroke_size = 0.002;
-
-                    cr.move_to(x - stroke_size / 2., y);
-                    cr.line_to(x + stroke_size / 2., y);
-                }
-            }
-
-            for cmd in subpath.iter_commands() {
-                cmd.to_cairo(cr);
-            }
-        }
-
-        // We check the cr's status right after feeding it a new path for a few reasons:
-        //
-        // * Any of the individual path commands may cause the cr to enter an error state, for
-        //   example, if they come with coordinates outside of Cairo's supported range.
-        //
-        // * The *next* call to the cr will probably be something that actually checks the status
-        //   (i.e. in cairo-rs), and we don't want to panic there.
-
-        cr.status().map_err(|e| e.into())
-    }
-
-    /// Converts a `cairo::Path` to a librsvg `Path`.
-    fn from_cairo(cairo_path: cairo::Path) -> Path {
-        let mut builder = PathBuilder::default();
-
-        // Cairo has the habit of appending a MoveTo to some paths, but we don't want a
-        // path for empty text to generate that lone point.  So, strip out paths composed
-        // only of MoveTo.
-
-        if !cairo_path_is_only_move_tos(&cairo_path) {
-            for segment in cairo_path.iter() {
-                match segment {
-                    cairo::PathSegment::MoveTo((x, y)) => builder.move_to(x, y),
-                    cairo::PathSegment::LineTo((x, y)) => builder.line_to(x, y),
-                    cairo::PathSegment::CurveTo((x2, y2), (x3, y3), (x4, y4)) => {
-                        builder.curve_to(x2, y2, x3, y3, x4, y4)
-                    }
-                    cairo::PathSegment::ClosePath => builder.close_path(),
-                }
-            }
-        }
-
-        builder.into_path()
-    }
-}
-
-fn cairo_path_is_only_move_tos(path: &cairo::Path) -> bool {
-    path.iter()
-        .all(|seg| matches!(seg, cairo::PathSegment::MoveTo((_, _))))
-}
-
-impl PathCommand {
-    fn to_cairo(&self, cr: &cairo::Context) {
-        match *self {
-            PathCommand::MoveTo(x, y) => cr.move_to(x, y),
-            PathCommand::LineTo(x, y) => cr.line_to(x, y),
-            PathCommand::CurveTo(ref curve) => curve.to_cairo(cr),
-            PathCommand::Arc(ref arc) => arc.to_cairo(cr),
-            PathCommand::ClosePath => cr.close_path(),
-        }
-    }
-}
-
-impl EllipticalArc {
-    fn to_cairo(&self, cr: &cairo::Context) {
-        match self.center_parameterization() {
-            ArcParameterization::CenterParameters {
-                center,
-                radii,
-                theta1,
-                delta_theta,
-            } => {
-                let n_segs = (delta_theta / (PI * 0.5 + 0.001)).abs().ceil() as u32;
-                let d_theta = delta_theta / f64::from(n_segs);
-
-                let mut theta = theta1;
-                for _ in 0..n_segs {
-                    arc_segment(center, radii, self.x_axis_rotation, theta, theta + d_theta)
-                        .to_cairo(cr);
-                    theta += d_theta;
-                }
-            }
-            ArcParameterization::LineTo => {
-                let (x2, y2) = self.to;
-                cr.line_to(x2, y2);
-            }
-            ArcParameterization::Omit => {}
-        }
-    }
-}
-
-impl CubicBezierCurve {
-    fn to_cairo(&self, cr: &cairo::Context) {
-        let Self { pt1, pt2, to } = *self;
-        cr.curve_to(pt1.0, pt1.1, pt2.0, pt2.1, to.0, to.1);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rsvg_path_from_cairo_path() {
-        let surface = cairo::ImageSurface::create(cairo::Format::ARgb32, 10, 10).unwrap();
-        let cr = cairo::Context::new(&surface).unwrap();
-
-        cr.move_to(1.0, 2.0);
-        cr.line_to(3.0, 4.0);
-        cr.curve_to(5.0, 6.0, 7.0, 8.0, 9.0, 10.0);
-        cr.close_path();
-
-        let cairo_path = cr.copy_path().unwrap();
-        let path = Path::from_cairo(cairo_path);
-
-        assert_eq!(
-            path.iter().collect::<Vec<PathCommand>>(),
-            vec![
-                PathCommand::MoveTo(1.0, 2.0),
-                PathCommand::LineTo(3.0, 4.0),
-                PathCommand::CurveTo(CubicBezierCurve {
-                    pt1: (5.0, 6.0),
-                    pt2: (7.0, 8.0),
-                    to: (9.0, 10.0),
-                }),
-                PathCommand::ClosePath,
-                PathCommand::MoveTo(1.0, 2.0), // cairo inserts a MoveTo after ClosePath
-            ],
-        );
-    }
 }

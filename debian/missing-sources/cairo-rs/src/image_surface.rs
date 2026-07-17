@@ -1,7 +1,6 @@
 // Take a look at the license at the top of the repository in the LICENSE file.
 
 use std::{
-    convert::TryFrom,
     ops::{Deref, DerefMut},
     rc::Rc,
     slice,
@@ -10,7 +9,7 @@ use std::{
 #[cfg(feature = "use_glib")]
 use glib::translate::*;
 
-use crate::{utils::status_to_result, BorrowError, Error, Format, Surface, SurfaceType};
+use crate::{ffi, utils::status_to_result, BorrowError, Error, Format, Surface, SurfaceType};
 
 declare_surface!(ImageSurface, SurfaceType::Image);
 

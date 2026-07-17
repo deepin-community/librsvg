@@ -38,7 +38,6 @@ use rkyv::bytecheck;
     )
 )]
 #[cfg_attr(feature = "rkyv-serialize", derive(bytecheck::CheckBytes))]
-#[cfg_attr(feature = "cuda", derive(cust_core::DeviceCopy))]
 pub struct Quaternion<T> {
     /// This quaternion as a 4D vector of coordinates in the `[ x, y, z, w ]` storage order.
     pub coords: Vector4<T>,
@@ -138,7 +137,7 @@ where
     /// # use nalgebra::Quaternion;
     /// let q = Quaternion::new(1.0, 2.0, 3.0, 4.0);
     /// let q_normalized = q.normalize();
-    /// relative_eq!(q_normalized.norm(), 1.0);
+    /// assert_relative_eq!(q_normalized.norm(), 1.0);
     /// ```
     #[inline]
     #[must_use = "Did you mean to use normalize_mut()?"]
@@ -271,7 +270,7 @@ where
     /// ```
     /// # use nalgebra::Quaternion;
     /// let q = Quaternion::new(1.0, 2.0, 3.0, 4.0);
-    /// assert_eq!(q.magnitude_squared(), 30.0);
+    /// assert_eq!(q.norm_squared(), 30.0);
     /// ```
     #[inline]
     #[must_use]
@@ -1016,9 +1015,6 @@ impl<T: RealField + fmt::Display> fmt::Display for Quaternion<T> {
 /// A unit quaternions. May be used to represent a rotation.
 pub type UnitQuaternion<T> = Unit<Quaternion<T>>;
 
-#[cfg(feature = "cuda")]
-unsafe impl<T: cust_core::DeviceCopy> cust_core::DeviceCopy for UnitQuaternion<T> {}
-
 impl<T: Scalar + ClosedNeg + PartialEq> PartialEq for UnitQuaternion<T> {
     #[inline]
     fn eq(&self, rhs: &Self) -> bool {
@@ -1231,7 +1227,7 @@ where
     /// * `other`: the second quaternion to interpolate toward.
     /// * `t`: the interpolation parameter. Should be between 0 and 1.
     /// * `epsilon`: the value below which the sinus of the angle separating both quaternion
-    /// must be to return `None`.
+    ///    must be to return `None`.
     #[inline]
     #[must_use]
     pub fn try_slerp(&self, other: &Self, t: T, epsilon: T) -> Option<Self>

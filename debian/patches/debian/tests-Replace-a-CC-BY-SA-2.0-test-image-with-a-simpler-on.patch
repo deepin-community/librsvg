@@ -11,10 +11,10 @@ Forwarded: not-needed, Debian-specific policy
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/rsvg_convert/tests/rsvg_convert.rs b/rsvg_convert/tests/rsvg_convert.rs
-index d480014..71679da 100644
+index a0e67b4..6e0fdc0 100644
 --- a/rsvg_convert/tests/rsvg_convert.rs
 +++ b/rsvg_convert/tests/rsvg_convert.rs
-@@ -906,11 +906,11 @@ fn background_color_option_invalid_color_yields_error() {
+@@ -907,11 +907,11 @@ fn background_color_option_invalid_color_yields_error() {
  
  #[test]
  fn background_color_is_rendered() {

@@ -15,7 +15,7 @@ where
 {
     // rustdoc-stripper-ignore-next
     /// Weak reference type.
-    type Weak;
+    type Weak: Upgrade;
 
     // rustdoc-stripper-ignore-next
     /// Downgrade to a weak reference.

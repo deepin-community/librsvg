@@ -12,7 +12,6 @@
 extern crate markup5ever;
 extern crate xml5ever;
 
-use std::default::Default;
 use std::io;
 
 use markup5ever::buffer_queue::BufferQueue;
@@ -41,10 +40,10 @@ impl TokenSink for SimpleTokenPrinter {
                 ref target,
                 ref data,
             }) => {
-                println!("PI : <?{} {}?>", &*target, &*data);
+                println!("PI : <?{} {}?>", target, data);
             },
             CommentToken(ref comment) => {
-                println!("<!--{:?}-->", &*comment);
+                println!("<!--{:?}-->", comment);
             },
             EOFToken => {
                 println!("EOF");
@@ -54,7 +53,7 @@ impl TokenSink for SimpleTokenPrinter {
                 ref public_id,
                 ..
             }) => {
-                println!("<!DOCTYPE {:?} {:?}>", &*name, &*public_id);
+                println!("<!DOCTYPE {:?} {:?}>", name, public_id);
             },
         }
     }
@@ -73,7 +72,7 @@ fn main() {
     // into StrTendril.
 
     // Load input into BufferQueue
-    let mut input_buffer = BufferQueue::new();
+    let mut input_buffer = BufferQueue::default();
     input_buffer.push_back(input.try_reinterpret().unwrap());
     // Here we create and run tokenizer
     let mut tok = XmlTokenizer::new(sink, Default::default());

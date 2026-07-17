@@ -1,6 +1,6 @@
 // Take a look at the license at the top of the repository in the LICENSE file.
 
-use crate::{prelude::*, translate::*, GStr, Regex};
+use crate::{ffi, prelude::*, translate::*, GStr, Regex};
 use std::{marker::PhantomData, mem, ptr};
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -34,12 +34,17 @@ impl MatchInfo<'_> {
     #[doc = "Return the inner pointer to the underlying C value."]
     #[inline]
     pub fn as_ptr(&self) -> *mut ffi::GMatchInfo {
-        unsafe { *(self as *const Self as *const *const ffi::GMatchInfo) as *mut ffi::GMatchInfo }
+        self.inner.as_ptr()
     }
     #[doc = "Borrows the underlying C value."]
     #[inline]
-    pub unsafe fn from_glib_ptr_borrow<'a>(ptr: *const *const ffi::GMatchInfo) -> &'a Self {
-        &*(ptr as *const Self)
+    pub unsafe fn from_glib_ptr_borrow(ptr: &*mut ffi::GMatchInfo) -> &Self {
+        debug_assert_eq!(
+            std::mem::size_of::<Self>(),
+            std::mem::size_of::<crate::ffi::gpointer>()
+        );
+        debug_assert!(!ptr.is_null());
+        &*(ptr as *const *mut ffi::GMatchInfo as *const Self)
     }
 }
 
@@ -194,15 +199,10 @@ unsafe impl<'a, 'input: 'a> crate::value::FromValue<'a> for &'a MatchInfo<'input
 
     #[inline]
     unsafe fn from_value(value: &'a crate::Value) -> Self {
-        debug_assert_eq!(
-            std::mem::size_of::<Self>(),
-            std::mem::size_of::<crate::ffi::gpointer>()
-        );
         let value = &*(value as *const crate::Value as *const crate::gobject_ffi::GValue);
-        debug_assert!(!value.data[0].v_pointer.is_null());
         <MatchInfo<'input>>::from_glib_ptr_borrow(
-            &value.data[0].v_pointer as *const crate::ffi::gpointer
-                as *const *const ffi::GMatchInfo,
+            &*(&value.data[0].v_pointer as *const crate::ffi::gpointer
+                as *const *mut ffi::GMatchInfo),
         )
     }
 }
@@ -328,15 +328,14 @@ impl<'input> MatchInfo<'input> {
     }
 
     #[doc(alias = "g_match_info_next")]
-    pub fn next(&self) -> Result<(), crate::Error> {
+    pub fn next(&self) -> Result<bool, crate::Error> {
         unsafe {
             let mut error = std::ptr::null_mut();
             let is_ok = ffi::g_match_info_next(self.to_glib_none().0, &mut error);
-            debug_assert_eq!(is_ok == crate::ffi::GFALSE, !error.is_null());
-            if error.is_null() {
-                Ok(())
-            } else {
+            if !error.is_null() {
                 Err(from_glib_full(error))
+            } else {
+                Ok(from_glib(is_ok))
             }
         }
     }

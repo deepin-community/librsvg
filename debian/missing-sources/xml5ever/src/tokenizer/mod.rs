@@ -26,7 +26,7 @@ use mac::{format_if, unwrap_or_return};
 use markup5ever::{local_name, namespace_prefix, namespace_url, ns, small_char_set};
 use std::borrow::Cow::{self, Borrowed};
 use std::collections::BTreeMap;
-use std::mem::replace;
+use std::mem::{self, replace};
 
 use self::buffer_queue::{BufferQueue, FromSet, NotFromSet, SetResult};
 use self::char_ref::{CharRef, CharRefTokenizer};
@@ -61,16 +61,16 @@ fn process_qname(tag_name: StrTendril) -> QualName {
     //     a:b
     // Since StrTendril are UTF-8, we know that minimal size in bytes must be
     // three bytes minimum.
-    let split = if (&*tag_name).as_bytes().len() < 3 {
+    let split = if (*tag_name).as_bytes().len() < 3 {
         None
     } else {
-        QualNameTokenizer::new((&*tag_name).as_bytes()).run()
+        QualNameTokenizer::new((*tag_name).as_bytes()).run()
     };
 
     match split {
         None => QualName::new(None, ns!(), LocalName::from(&*tag_name)),
         Some(col) => {
-            let len = (&*tag_name).as_bytes().len() as u32;
+            let len = (*tag_name).as_bytes().len() as u32;
             let prefix = tag_name.subtendril(0, col);
             let local = tag_name.subtendril(col + 1, len - col - 1);
             let ns = ns!(); // Actual namespace URL set in XmlTreeBuilder::bind_qname
@@ -193,7 +193,7 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
             current_comment: StrTendril::new(),
             current_pi_data: StrTendril::new(),
             current_pi_target: StrTendril::new(),
-            current_doctype: Doctype::new(),
+            current_doctype: Doctype::default(),
             state_profile: BTreeMap::new(),
             time_in_sink: 0,
         }
@@ -248,8 +248,8 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
         }
 
         // Exclude forbidden Unicode characters
-        if self.opts.exact_errors &&
-            match c as u32 {
+        if self.opts.exact_errors
+            && match c as u32 {
                 0x01..=0x08 | 0x0B | 0x0E..=0x1F | 0x7F..=0x9F | 0xFDD0..=0xFDEF => true,
                 n if (n & 0xFFFE) == 0xFFFE => true,
                 _ => false,
@@ -305,9 +305,7 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
         match input.eat(pat, u8::eq_ignore_ascii_case) {
             None if self.at_eof => Some(false),
             None => {
-                while let Some(c) = input.next() {
-                    self.temp_buf.push_char(c);
-                }
+                self.temp_buf.extend(input);
                 None
             },
             Some(matched) => Some(matched),
@@ -434,7 +432,7 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
         let token = TagToken(Tag {
             kind: self.current_tag_kind,
             name: qname,
-            attrs: replace(&mut self.current_tag_attrs, vec![]),
+            attrs: mem::take(&mut self.current_tag_attrs),
         });
         self.process_token(token);
 
@@ -473,12 +471,12 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
     }
 
     fn emit_current_comment(&mut self) {
-        let comment = replace(&mut self.current_comment, StrTendril::new());
+        let comment = mem::take(&mut self.current_comment);
         self.process_token(CommentToken(comment));
     }
 
     fn emit_current_doctype(&mut self) {
-        let doctype = replace(&mut self.current_doctype, Doctype::new());
+        let doctype = mem::take(&mut self.current_doctype);
         self.process_token(DoctypeToken(doctype));
     }
 
@@ -533,7 +531,7 @@ macro_rules! shorthand (
     ( $me:ident : append_comment $c:expr           ) => ( $me.current_comment.push_slice($c)                  );
     ( $me:ident : emit_comment                     ) => ( $me.emit_current_comment()                          );
     ( $me:ident : clear_comment                    ) => ( $me.current_comment.clear()                         );
-    ( $me:ident : create_doctype                   ) => ( $me.current_doctype = Doctype::new()                );
+    ( $me:ident : create_doctype                   ) => ( $me.current_doctype = Doctype::default()            );
     ( $me:ident : push_doctype_name $c:expr        ) => ( option_push(&mut $me.current_doctype.name, $c)      );
     ( $me:ident : push_doctype_id $k:ident $c:expr ) => ( option_push($me.doctype_id($k), $c)                 );
     ( $me:ident : clear_doctype_id $k:ident        ) => ( $me.clear_doctype_id($k)                            );
@@ -548,13 +546,13 @@ macro_rules! shorthand (
 
 // Tracing of tokenizer actions.  This adds significant bloat and compile time,
 // so it's behind a cfg flag.
-#[cfg(trace_tokenizer)]
+#[cfg(feature = "trace_tokenizer")]
 macro_rules! sh_trace ( ( $me:ident : $($cmds:tt)* ) => ({
-    debug!("  {:s}", stringify!($($cmds)*));
-    shorthand!($me:expr : $($cmds)*);
+    debug!("  {:?}", stringify!($($cmds)*));
+    shorthand!($me : $($cmds)*);
 }));
 
-#[cfg(not(trace_tokenizer))]
+#[cfg(not(feature = "trace_tokenizer"))]
 macro_rules! sh_trace ( ( $me:ident : $($cmds:tt)* ) => ( shorthand!($me: $($cmds)*) ) );
 
 // A little DSL for sequencing shorthand actions.
@@ -1070,9 +1068,8 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
             },
             //§ bogus_doctype_state
             XmlState::BogusDoctype => loop {
-                match get_char!(self, input) {
-                    '>' => go!(self: emit_doctype; to Data),
-                    _ => (),
+                if get_char!(self, input) == '>' {
+                    go!(self: emit_doctype; to Data);
                 }
             },
         }
@@ -1082,7 +1079,7 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
     pub fn end(&mut self) {
         // Handle EOF in the char ref sub-tokenizer, if there is one.
         // Do this first because it might un-consume stuff.
-        let mut input = BufferQueue::new();
+        let mut input = BufferQueue::default();
         match self.char_ref_tokenizer.take() {
             None => (),
             Some(mut tok) => {
@@ -1141,11 +1138,11 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
             },
             XmlState::CommentLessThanBangDash => go!(self: reconsume CommentEndDash),
             XmlState::CommentLessThanBangDashDash => go!(self: reconsume CommentEnd),
-            XmlState::CommentStartDash |
-            XmlState::Comment |
-            XmlState::CommentEndDash |
-            XmlState::CommentEnd |
-            XmlState::CommentEndBang => go!(self: error_eof; emit_comment; eof),
+            XmlState::CommentStartDash
+            | XmlState::Comment
+            | XmlState::CommentEndDash
+            | XmlState::CommentEnd
+            | XmlState::CommentEndBang => go!(self: error_eof; emit_comment; eof),
             XmlState::TagState => go!(self: error_eof; emit '<'; to Data),
             XmlState::EndTagState => go!(self: error_eof; emit '<'; emit '/'; to Data),
             XmlState::TagEmpty => go!(self: error_eof; to TagAttrNameBefore),
@@ -1155,25 +1152,25 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
             XmlState::Pi => go!(self: error_eof; to BogusComment),
             XmlState::PiTargetAfter | XmlState::PiAfter => go!(self: reconsume PiData),
             XmlState::MarkupDecl => go!(self: error_eof; to BogusComment),
-            XmlState::TagName |
-            XmlState::TagAttrNameBefore |
-            XmlState::EndTagName |
-            XmlState::TagAttrNameAfter |
-            XmlState::EndTagNameAfter |
-            XmlState::TagAttrValueBefore |
-            XmlState::TagAttrValue(_) => go!(self: error_eof; emit_tag Data),
+            XmlState::TagName
+            | XmlState::TagAttrNameBefore
+            | XmlState::EndTagName
+            | XmlState::TagAttrNameAfter
+            | XmlState::EndTagNameAfter
+            | XmlState::TagAttrValueBefore
+            | XmlState::TagAttrValue(_) => go!(self: error_eof; emit_tag Data),
             XmlState::PiData | XmlState::PiTarget => go!(self: error_eof; emit_pi Data),
             XmlState::TagAttrName => go!(self: error_eof; emit_start_tag Data),
-            XmlState::BeforeDoctypeName |
-            XmlState::Doctype |
-            XmlState::DoctypeName |
-            XmlState::AfterDoctypeName |
-            XmlState::AfterDoctypeKeyword(_) |
-            XmlState::BeforeDoctypeIdentifier(_) |
-            XmlState::AfterDoctypeIdentifier(_) |
-            XmlState::DoctypeIdentifierSingleQuoted(_) |
-            XmlState::DoctypeIdentifierDoubleQuoted(_) |
-            XmlState::BetweenDoctypePublicAndSystemIdentifiers => {
+            XmlState::BeforeDoctypeName
+            | XmlState::Doctype
+            | XmlState::DoctypeName
+            | XmlState::AfterDoctypeName
+            | XmlState::AfterDoctypeKeyword(_)
+            | XmlState::BeforeDoctypeIdentifier(_)
+            | XmlState::AfterDoctypeIdentifier(_)
+            | XmlState::DoctypeIdentifierSingleQuoted(_)
+            | XmlState::DoctypeIdentifierDoubleQuoted(_)
+            | XmlState::BetweenDoctypePublicAndSystemIdentifiers => {
                 go!(self: error_eof; emit_doctype; to Data)
             },
             XmlState::BogusDoctype => go!(self: emit_doctype; to Data),
@@ -1251,8 +1248,8 @@ impl<Sink: TokenSink> XmlTokenizer<Sink> {
                 value: replace(&mut self.current_attr_value, StrTendril::new()),
             };
 
-            if qname.local == local_name!("xmlns") ||
-                qname.prefix == Some(namespace_prefix!("xmlns"))
+            if qname.local == local_name!("xmlns")
+                || qname.prefix == Some(namespace_prefix!("xmlns"))
             {
                 self.current_tag_attrs.insert(0, attr);
             } else {

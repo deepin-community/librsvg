@@ -2,7 +2,7 @@
 
 use std::{cmp, fmt, hash};
 
-use crate::{translate::*, BoolError, DateDay, DateMonth, DateWeekday, DateYear};
+use crate::{ffi, gobject_ffi, translate::*, BoolError, DateDay, DateMonth, DateWeekday, DateYear};
 
 wrapper! {
     #[doc(alias = "GDate")]
@@ -242,7 +242,7 @@ impl Date {
     }
 
     #[doc(alias = "g_date_set_time_t")]
-    pub fn set_time(&mut self, time_: u32) -> Result<(), BoolError> {
+    pub fn set_time(&mut self, time_: libc::time_t) -> Result<(), BoolError> {
         let mut c = *self;
         unsafe {
             ffi::g_date_set_time_t(c.to_glib_none_mut().0, time_ as _);

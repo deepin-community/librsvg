@@ -487,6 +487,10 @@ impl i16x8 {
         (move_mask_i8_m128i(self.sse) & 0b1010101010101010) != 0
       } else if #[cfg(target_feature="simd128")] {
         u16x8_bitmask(self.simd) != 0
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe {
+          vminvq_s16(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         ((v[0] | v[1]) & 0x8000800080008000) != 0
@@ -502,6 +506,10 @@ impl i16x8 {
         (move_mask_i8_m128i(self.sse) & 0b1010101010101010) == 0b1010101010101010
       } else if #[cfg(target_feature="simd128")] {
         u16x8_bitmask(self.simd) == 0b11111111
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe {
+          vmaxvq_s16(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         (v[0] & v[1] & 0x8000800080008000) == 0x8000800080008000
@@ -517,6 +525,7 @@ impl i16x8 {
 
   /// Unpack the lower half of the input and expand it to `i16` values.
   #[inline]
+  #[must_use]
   pub fn from_u8x16_low(u: u8x16) -> Self {
     pick! {
       if #[cfg(target_feature="sse2")] {
@@ -537,7 +546,30 @@ impl i16x8 {
     }
   }
 
-  /// returns low i16 of i32, saturating values that are too large
+  /// Unpack the upper half of the input and expand it to `i16` values.
+  #[inline]
+  #[must_use]
+  pub fn from_u8x16_high(u: u8x16) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self{ sse: unpack_high_i8_m128i(u.sse, m128i::zeroed()) }
+      } else {
+        let u_arr: [u8; 16] = cast(u);
+        cast([
+          u_arr[8] as u16 as i16,
+          u_arr[9] as u16 as i16,
+          u_arr[10] as u16 as i16,
+          u_arr[11] as u16 as i16,
+          u_arr[12] as u16 as i16,
+          u_arr[13] as u16 as i16,
+          u_arr[14] as u16 as i16,
+          u_arr[15] as u16 as i16,
+        ])
+      }
+    }
+  }
+
+  /// returns low `i16` of `i32`, saturating values that are too large
   #[inline]
   #[must_use]
   pub fn from_i32x8_saturate(v: i32x8) -> Self {
@@ -582,7 +614,7 @@ impl i16x8 {
     }
   }
 
-  /// returns low i16 of i32, truncating the upper bits if they are set
+  /// returns low `i16` of `i32`, truncating the upper bits if they are set
   #[inline]
   #[must_use]
   pub fn from_i32x8_truncate(v: i32x8) -> Self {
@@ -654,32 +686,94 @@ impl i16x8 {
   #[inline]
   #[must_use]
   pub fn reduce_add(self) -> i16 {
-    let arr: [i16; 8] = cast(self);
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        // there is a horizontal add instruction on ssse3, but apparently it is very slow on some AMD CPUs
+        let hi64 = shuffle_ai_f32_all_m128i::<0b01_00_11_10>(self.sse);
+        let sum64 = add_i16_m128i(self.sse, hi64);
+        let hi32 = shuffle_ai_f32_all_m128i::<0b11_10_00_01>(sum64);
+        let sum32 = add_i16_m128i(sum64, hi32);
+        let lo16 = shr_imm_u32_m128i::<16>(sum32);
+        let sum16 = add_i16_m128i(sum32, lo16);
+        extract_i16_as_i32_m128i::<0>(sum16) as i16
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe { vaddvq_s16(self.neon) }
+      } else {
+        let arr: [i16; 8] = cast(self);
 
-    (arr[0].wrapping_add(arr[1]).wrapping_add(arr[2].wrapping_add(arr[3])))
-      .wrapping_add(
-        arr[4].wrapping_add(arr[5]).wrapping_add(arr[6].wrapping_add(arr[7])),
-      )
+        // most boring implementation possible so optimizer doesn't overthink this
+        let mut r = arr[0];
+        r = r.wrapping_add(arr[1]);
+        r = r.wrapping_add(arr[2]);
+        r = r.wrapping_add(arr[3]);
+        r = r.wrapping_add(arr[4]);
+        r = r.wrapping_add(arr[5]);
+        r = r.wrapping_add(arr[6]);
+        r.wrapping_add(arr[7])
+      }
+    }
   }
 
   /// horizontal min of all the elements of the vector
   #[inline]
   #[must_use]
   pub fn reduce_min(self) -> i16 {
-    let arr: [i16; 8] = cast(self);
+    pick! {
+        if #[cfg(target_feature="sse2")] {
+          let hi64 = shuffle_ai_f32_all_m128i::<0b01_00_11_10>(self.sse);
+          let sum64 = min_i16_m128i(self.sse, hi64);
+          let hi32 = shuffle_ai_f32_all_m128i::<0b11_10_00_01>(sum64);
+          let sum32 = min_i16_m128i(sum64, hi32);
+          let lo16 = shr_imm_u32_m128i::<16>(sum32);
+          let sum16 = min_i16_m128i(sum32, lo16);
+          extract_i16_as_i32_m128i::<0>(sum16) as i16
+        } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+          unsafe { vminvq_s16(self.neon) }
+        } else {
+        let arr: [i16; 8] = cast(self);
 
-    (arr[0].min(arr[1]).min(arr[2].min(arr[3])))
-      .min(arr[4].min(arr[5]).min(arr[6].min(arr[7])))
+        // most boring implementation possible so optimizer doesn't overthink this
+        let mut r = arr[0];
+        r = r.min(arr[1]);
+        r = r.min(arr[2]);
+        r = r.min(arr[3]);
+        r = r.min(arr[4]);
+        r = r.min(arr[5]);
+        r = r.min(arr[6]);
+        r.min(arr[7])
+      }
+    }
   }
 
   /// horizontal max of all the elements of the vector
   #[inline]
   #[must_use]
   pub fn reduce_max(self) -> i16 {
-    let arr: [i16; 8] = cast(self);
+    pick! {
+        if #[cfg(target_feature="sse2")] {
+          let hi64 = shuffle_ai_f32_all_m128i::<0b01_00_11_10>(self.sse);
+          let sum64 = max_i16_m128i(self.sse, hi64);
+          let hi32 = shuffle_ai_f32_all_m128i::<0b11_10_00_01>(sum64);
+          let sum32 = max_i16_m128i(sum64, hi32);
+          let lo16 = shr_imm_u32_m128i::<16>(sum32);
+          let sum16 = max_i16_m128i(sum32, lo16);
+          extract_i16_as_i32_m128i::<0>(sum16) as i16
+        } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+          unsafe { vmaxvq_s16(self.neon) }
+        } else {
+        let arr: [i16; 8] = cast(self);
 
-    (arr[0].max(arr[1]).max(arr[2].max(arr[3])))
-      .max(arr[4].max(arr[5]).max(arr[6].max(arr[7])))
+        // most boring implementation possible so optimizer doesn't overthink this
+        let mut r = arr[0];
+        r = r.max(arr[1]);
+        r = r.max(arr[2]);
+        r = r.max(arr[3]);
+        r = r.max(arr[4]);
+        r = r.max(arr[5]);
+        r = r.max(arr[6]);
+        r.max(arr[7])
+      }
+    }
   }
 
   #[inline]
@@ -696,10 +790,52 @@ impl i16x8 {
       } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
         unsafe {Self { neon: vabsq_s16(self.neon) }}
       } else {
-        self.is_negative().blend(self.neg(), self)
+        let arr: [i16; 8] = cast(self);
+        cast(
+          [
+            arr[0].wrapping_abs(),
+            arr[1].wrapping_abs(),
+            arr[2].wrapping_abs(),
+            arr[3].wrapping_abs(),
+            arr[4].wrapping_abs(),
+            arr[5].wrapping_abs(),
+            arr[6].wrapping_abs(),
+            arr[7].wrapping_abs(),
+          ])
       }
     }
   }
+
+  #[inline]
+  #[must_use]
+  pub fn unsigned_abs(self) -> u16x8 {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        let mask = shr_imm_i16_m128i::<15>(self.sse);
+        u16x8 { sse: bitxor_m128i(add_i16_m128i(self.sse, mask), mask) }
+      } else if #[cfg(target_feature="ssse3")] {
+        u16x8 { sse: abs_i16_m128i(self.sse) }
+      } else if #[cfg(target_feature="simd128")] {
+        u16x8 { simd: i16x8_abs(self.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {u16x8 { neon: vreinterpretq_u16_s16(vabsq_s16(self.neon)) }}
+      } else {
+        let arr: [i16; 8] = cast(self);
+        cast(
+          [
+            arr[0].unsigned_abs(),
+            arr[1].unsigned_abs(),
+            arr[2].unsigned_abs(),
+            arr[3].unsigned_abs(),
+            arr[4].unsigned_abs(),
+            arr[5].unsigned_abs(),
+            arr[6].unsigned_abs(),
+            arr[7].unsigned_abs(),
+          ])
+      }
+    }
+  }
+
   #[inline]
   #[must_use]
   pub fn max(self, rhs: Self) -> Self {
@@ -809,13 +945,13 @@ impl i16x8 {
     }
   }
 
-  /// Multiply and scale equivilent to ((self * rhs) + 0x4000) >> 15 on each
-  /// lane, effectively multiplying by a 16 bit fixed point number between -1
-  /// and 1. This corresponds to the following instructions:
-  /// - vqrdmulhq_s16 instruction on neon
-  /// - i16x8_q15mulr_sat on simd128
-  /// - _mm_mulhrs_epi16 on ssse3
-  /// - emulated via mul_i16_* on sse2
+  /// Multiply and scale equivalent to `((self * rhs) + 0x4000) >> 15` on each
+  /// lane, effectively multiplying by a 16 bit fixed point number between `-1`
+  /// and `1`. This corresponds to the following instructions:
+  /// - `vqrdmulhq_s16` instruction on neon
+  /// - `i16x8_q15mulr_sat` on simd128
+  /// - `_mm_mulhrs_epi16` on ssse3
+  /// - emulated via `mul_i16_*` on sse2
   #[inline]
   #[must_use]
   pub fn mul_scale_round(self, rhs: Self) -> Self {
@@ -850,6 +986,88 @@ impl i16x8 {
           ((i32::from(self.arr[7]) * i32::from(rhs.arr[7]) + 0x4000) >> 15) as i16,
         ]}
       }
+    }
+  }
+
+  /// Multiples two `i16x8` and return the high part of intermediate `i32x8`
+  #[inline]
+  #[must_use]
+  pub fn mul_keep_high(lhs: Self, rhs: Self) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self { sse: mul_i16_keep_high_m128i(lhs.sse, rhs.sse) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        let lhs_low = unsafe { vget_low_s16(lhs.neon) };
+        let rhs_low = unsafe { vget_low_s16(rhs.neon) };
+
+        let lhs_high = unsafe { vget_high_s16(lhs.neon) };
+        let rhs_high = unsafe { vget_high_s16(rhs.neon) };
+
+        let low = unsafe { vmull_s16(lhs_low, rhs_low) };
+        let high = unsafe { vmull_s16(lhs_high, rhs_high) };
+
+        i16x8 { neon: unsafe { vreinterpretq_s16_u16(vuzpq_u16(vreinterpretq_u16_s32(low), vreinterpretq_u16_s32(high)).1) } }
+      } else if #[cfg(target_feature="simd128")] {
+        let low =  i32x4_extmul_low_i16x8(lhs.simd, rhs.simd);
+        let high = i32x4_extmul_high_i16x8(lhs.simd, rhs.simd);
+
+        Self { simd: i16x8_shuffle::<1, 3, 5, 7, 9, 11, 13, 15>(low, high) }
+      } else {
+        i16x8::new([
+          ((i32::from(rhs.as_array_ref()[0]) * i32::from(lhs.as_array_ref()[0])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[1]) * i32::from(lhs.as_array_ref()[1])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[2]) * i32::from(lhs.as_array_ref()[2])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[3]) * i32::from(lhs.as_array_ref()[3])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[4]) * i32::from(lhs.as_array_ref()[4])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[5]) * i32::from(lhs.as_array_ref()[5])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[6]) * i32::from(lhs.as_array_ref()[6])) >> 16) as i16,
+          ((i32::from(rhs.as_array_ref()[7]) * i32::from(lhs.as_array_ref()[7])) >> 16) as i16,
+        ])
+      }
+    }
+  }
+
+  /// multiplies two `i16x8` and returns the result as a widened `i32x8`
+  #[inline]
+  #[must_use]
+  pub fn mul_widen(self, rhs: Self) -> i32x8 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        let a = convert_to_i32_m256i_from_i16_m128i(self.sse);
+        let b = convert_to_i32_m256i_from_i16_m128i(rhs.sse);
+        i32x8 { avx2: mul_i32_keep_low_m256i(a,b) }
+      } else if #[cfg(target_feature="sse2")] {
+         let low = mul_i16_keep_low_m128i(self.sse, rhs.sse);
+         let high = mul_i16_keep_high_m128i(self.sse, rhs.sse);
+         i32x8 {
+          a: i32x4 { sse:unpack_low_i16_m128i(low, high) },
+          b: i32x4 { sse:unpack_high_i16_m128i(low, high) }
+        }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+         let lhs_low = unsafe { vget_low_s16(self.neon) };
+         let rhs_low = unsafe { vget_low_s16(rhs.neon) };
+
+         let lhs_high = unsafe { vget_high_s16(self.neon) };
+         let rhs_high = unsafe { vget_high_s16(rhs.neon) };
+
+         let low = unsafe { vmull_s16(lhs_low, rhs_low) };
+         let high = unsafe { vmull_s16(lhs_high, rhs_high) };
+
+         i32x8 { a: i32x4 { neon: low }, b: i32x4 {neon: high } }
+       } else {
+        let a = self.as_array_ref();
+        let b = rhs.as_array_ref();
+         i32x8::new([
+           i32::from(a[0]) * i32::from(b[0]),
+           i32::from(a[1]) * i32::from(b[1]),
+           i32::from(a[2]) * i32::from(b[2]),
+           i32::from(a[3]) * i32::from(b[3]),
+           i32::from(a[4]) * i32::from(b[4]),
+           i32::from(a[5]) * i32::from(b[5]),
+           i32::from(a[6]) * i32::from(b[6]),
+           i32::from(a[7]) * i32::from(b[7]),
+         ])
+       }
     }
   }
 
@@ -990,13 +1208,13 @@ impl i16x8 {
 
   #[inline]
   #[must_use]
-  /// Multiply and scale, equivalent to ((self * rhs) + 0x4000) >> 15 on each
-  /// lane, effectively multiplying by a 16 bit fixed point number between -1
-  /// and 1. This corresponds to the following instructions:
-  /// - vqrdmulhq_n_s16 instruction on neon
-  /// - i16x8_q15mulr_sat on simd128
-  /// - _mm_mulhrs_epi16 on ssse3
-  /// - emulated via mul_i16_* on sse2
+  /// Multiply and scale, equivalent to `((self * rhs) + 0x4000) >> 15` on each
+  /// lane, effectively multiplying by a 16 bit fixed point number between `-1`
+  /// and `1`. This corresponds to the following instructions:
+  /// - `vqrdmulhq_n_s16` instruction on neon
+  /// - `i16x8_q15mulr_sat` on simd128
+  /// - `_mm_mulhrs_epi16` on ssse3
+  /// - emulated via `mul_i16_*` on sse2
   pub fn mul_scale_round_n(self, rhs: i16) -> Self {
     pick! {
       if #[cfg(target_feature="ssse3")] {

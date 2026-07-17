@@ -35,7 +35,7 @@ fn reference_test(path: &Path) {
     setup_language();
     setup_font_map();
 
-    let path_base_name = path.file_stem().unwrap().to_string_lossy().to_owned();
+    let path_base_name = path.file_stem().unwrap().to_string_lossy().into_owned();
     if path_base_name.starts_with("ignore") {
         return;
     }
@@ -160,10 +160,7 @@ fn checked_i32(x: f64) -> i32 {
 fn has_supported_unit(l: &Length) -> bool {
     use rsvg::LengthUnit::*;
 
-    match l.unit {
-        Percent | Px | In | Cm | Mm | Pt | Pc => true,
-        _ => false,
-    }
+    matches!(l.unit, Percent | Px | In | Cm | Mm | Pt | Pc)
 }
 
 const POINTS_PER_INCH: f64 = 72.0;
@@ -758,7 +755,6 @@ mod tests {
     t!(bugs_bug718_rect_negative_rx_ry_svg,                         "bugs/bug718-rect-negative-rx-ry.svg");
     t!(bugs_bug730_font_scaling_svg,                                "bugs/bug730-font-scaling.svg");
     t!(bugs_bug738367_svg,                                          "bugs/bug738367.svg");
-    t!(bugs_bug749415_svg,                                          "bugs/bug749415.svg");
     t!(bugs_bug760180_svg,                                          "bugs/bug760180.svg");
     t!(bugs_bug761175_recursive_masks_svg,                          "bugs/bug761175-recursive-masks.svg");
     t!(bugs_bug761871_reset_reflection_points_svg,                  "bugs/bug761871-reset-reflection-points.svg");
@@ -766,6 +762,7 @@ mod tests {
     t!(bugs_bug776297_marker_on_non_path_elements_svg,              "bugs/bug776297-marker-on-non-path-elements.svg");
     t!(bugs_bug786372_default_style_type_svg,                       "bugs/bug786372-default-style-type.svg");
     t!(bugs_bug788_inner_svg_viewbox_svg,                           "bugs/bug788-inner-svg-viewbox.svg");
+    t!(bugs_bug1128_elliptical_arcs_big_radius_svg,                 "bugs/bug1128-elliptical-arcs-big-radius.svg");
     t!(bugs_ignore_577_multiple_font_families_svg,                  "bugs/ignore-577-multiple-font-families.svg");
     t!(svg1_1_coords_trans_01_b_svg,                                "svg1.1/coords-trans-01-b.svg");
     t!(svg1_1_coords_trans_02_t_svg,                                "svg1.1/coords-trans-02-t.svg");
@@ -921,6 +918,7 @@ mod tests {
     t!(svg1_1_text_align_02_b_svg,                                  "svg1.1/text-align-02-b.svg");
     t!(svg1_1_text_align_03_b_svg,                                  "svg1.1/text-align-03-b.svg");
     t!(svg1_1_text_fonts_02_t_svg,                                  "svg1.1/text-fonts-02-t.svg");
+    t!(svg1_1_text_dominant_baseline_01_svg,                        "svg1.1/text-dominant-baseline-01.svg");
     t!(svg1_1_text_text_03_b_svg,                                   "svg1.1/text-text-03-b.svg");
     t!(svg1_1_text_text_08_b_svg,                                   "svg1.1/text-text-08-b.svg");
     t!(svg1_1_text_text_10_t_svg,                                   "svg1.1/text-text-10-t.svg");
@@ -1194,7 +1192,19 @@ test_svg_reference!(
 );
 
 test_svg_reference!(
+    xinclude_non_utf8,
+    "tests/fixtures/reftests/xinclude-non-utf8.svg",
+    "tests/fixtures/reftests/xinclude-non-utf8-ref.svg"
+);
+
+test_svg_reference!(
     markers_arc_segments,
     "tests/fixtures/reftests/markers-arc-segments.svg",
     "tests/fixtures/reftests/markers-arc-segments-ref.svg"
+);
+
+test_svg_reference!(
+    bug_1121_feimage_embedded_svg,
+    "tests/fixtures/reftests/bugs-reftests/bug1121-feimage-embedded-svg.svg",
+    "tests/fixtures/reftests/bugs-reftests/bug1121-feimage-embedded-svg-ref.svg"
 );

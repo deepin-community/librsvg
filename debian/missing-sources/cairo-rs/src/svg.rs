@@ -3,7 +3,6 @@
 #[cfg(not(windows))]
 use std::os::unix::prelude::*;
 use std::{
-    convert::TryFrom,
     ffi::{CStr, CString},
     io, mem,
     ops::Deref,
@@ -16,7 +15,7 @@ use glib::translate::*;
 
 #[cfg(all(feature = "svg", feature = "v1_16"))]
 use crate::SvgUnit;
-use crate::{Error, Surface, SurfaceType, SvgVersion};
+use crate::{ffi, Error, Surface, SurfaceType, SvgVersion};
 
 impl SvgVersion {
     pub fn as_str(self) -> Option<&'static str> {

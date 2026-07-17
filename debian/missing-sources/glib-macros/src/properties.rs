@@ -507,6 +507,7 @@ fn expand_set_property_fn(props: &[PropDesc]) -> TokenStream2 {
         })
     });
     quote!(
+        #[allow(unreachable_code)]
         fn derived_set_property(&self,
             id: usize,
             value: &#crate_ident::Value,
@@ -570,9 +571,11 @@ fn expand_impl_getset_properties(props: &[PropDesc]) -> Vec<syn::ImplItemFn> {
             let span = p.attrs_span;
             parse_quote_spanned!(span=>
                 #[must_use]
+                #[allow(dead_code)]
                 pub fn #ident(&self) -> <#ty as #crate_ident::property::Property>::Value {
                     self.property::<<#ty as #crate_ident::property::Property>::Value>(#stripped_name)
-                })
+                }
+            )
         });
 
         let setter = (p.set.is_some() && !p.is_construct_only).then(|| {
@@ -593,9 +596,12 @@ fn expand_impl_getset_properties(props: &[PropDesc]) -> Vec<syn::ImplItemFn> {
                 )
             };
             let span = p.attrs_span;
-            parse_quote_spanned!(span=> pub fn #ident<'a>(&self, value: #set_ty) {
-                self.set_property_from_value(#stripped_name, &::std::convert::From::from(#upcasted_borrowed_value))
-            })
+            parse_quote_spanned!(span=>
+                #[allow(dead_code)]
+                pub fn #ident<'a>(&self, value: #set_ty) {
+                    self.set_property_from_value(#stripped_name, &::std::convert::From::from(#upcasted_borrowed_value))
+                }
+            )
         });
         [getter, setter]
     });
@@ -611,11 +617,14 @@ fn expand_impl_connect_prop_notify(props: &[PropDesc]) -> Vec<syn::ImplItemFn> {
         let stripped_name = strip_raw_prefix_from_name(name);
         let fn_ident = format_ident!("connect_{}_notify", name_to_ident(name));
         let span = p.attrs_span;
-        parse_quote_spanned!(span=> pub fn #fn_ident<F: Fn(&Self) + 'static>(&self, f: F) -> #crate_ident::SignalHandlerId {
-            self.connect_notify_local(::core::option::Option::Some(#stripped_name), move |this, _| {
-                f(this)
-            })
-        })
+        parse_quote_spanned!(span=>
+            #[allow(dead_code)]
+            pub fn #fn_ident<F: Fn(&Self) + 'static>(&self, f: F) -> #crate_ident::SignalHandlerId {
+                self.connect_notify_local(::core::option::Option::Some(#stripped_name), move |this, _| {
+                    f(this)
+                })
+            }
+        )
     });
     connection_fns.collect::<Vec<_>>()
 }
@@ -627,13 +636,16 @@ fn expand_impl_notify_prop(wrapper_type: &syn::Path, props: &[PropDesc]) -> Vec<
         let fn_ident = format_ident!("notify_{}", name_to_ident(&name));
         let span = p.attrs_span;
         let enum_ident = name_to_enum_ident(name.value());
-        parse_quote_spanned!(span=> pub fn #fn_ident(&self) {
-            self.notify_by_pspec(
-                &<<#wrapper_type as #crate_ident::object::ObjectSubclassIs>::Subclass
-                    as #crate_ident::subclass::object::DerivedObjectProperties>::derived_properties()
-                [DerivedPropertiesEnum::#enum_ident as usize]
-            );
-        })
+        parse_quote_spanned!(span=>
+            #[allow(dead_code)]
+            pub fn #fn_ident(&self) {
+                self.notify_by_pspec(
+                    &<<#wrapper_type as #crate_ident::object::ObjectSubclassIs>::Subclass
+                        as #crate_ident::subclass::object::DerivedObjectProperties>::derived_properties()
+                    [DerivedPropertiesEnum::#enum_ident as usize]
+                );
+            }
+        )
     });
     emit_fns.collect::<Vec<_>>()
 }
@@ -656,29 +668,43 @@ fn name_to_enum_ident(name: String) -> syn::Ident {
 }
 
 fn expand_properties_enum(props: &[PropDesc]) -> TokenStream2 {
-    let properties: Vec<syn::Ident> = props
-        .iter()
-        .map(|p| {
-            let name: String = p.name.value();
+    if props.is_empty() {
+        quote! {
+            #[derive(Debug, Copy, Clone)]
+            enum DerivedPropertiesEnum {}
+            impl std::convert::TryFrom<usize> for DerivedPropertiesEnum {
+                type Error = usize;
 
-            name_to_enum_ident(name)
-        })
-        .collect();
-    let props = properties.iter();
-    let indices = 0..properties.len();
-    quote! {
-        #[repr(usize)]
-        #[derive(Debug, Copy, Clone)]
-        enum DerivedPropertiesEnum {
-            #(#props,)*
+                fn try_from(item: usize) -> ::core::result::Result<Self, <Self as std::convert::TryFrom<usize>>::Error> {
+                    ::core::result::Result::Err(item)
+                }
+            }
         }
-        impl std::convert::TryFrom<usize> for DerivedPropertiesEnum {
-            type Error = usize;
+    } else {
+        let properties: Vec<syn::Ident> = props
+            .iter()
+            .map(|p| {
+                let name: String = p.name.value();
 
-            fn try_from(item: usize) -> ::core::result::Result<Self, <Self as std::convert::TryFrom<usize>>::Error> {
-                match item {
-                    #(#indices => ::core::result::Result::Ok(Self::#properties),)*
-                    _ => ::core::result::Result::Err(item)
+                name_to_enum_ident(name)
+            })
+            .collect();
+        let props = properties.iter();
+        let indices = 0..properties.len();
+        quote! {
+            #[repr(usize)]
+            #[derive(Debug, Copy, Clone)]
+            enum DerivedPropertiesEnum {
+                #(#props,)*
+            }
+            impl std::convert::TryFrom<usize> for DerivedPropertiesEnum {
+                type Error = usize;
+
+                fn try_from(item: usize) -> ::core::result::Result<Self, <Self as std::convert::TryFrom<usize>>::Error> {
+                    match item {
+                        #(#indices => ::core::result::Result::Ok(Self::#properties),)*
+                        _ => ::core::result::Result::Err(item)
+                    }
                 }
             }
         }
@@ -732,8 +758,6 @@ pub fn impl_derive_props(input: PropsMacroInput) -> TokenStream {
     };
 
     let expanded = quote! {
-        use #crate_ident::property::{PropertyGet, PropertySet};
-
         #properties_enum
 
         impl #crate_ident::subclass::object::DerivedObjectProperties for #struct_ident {

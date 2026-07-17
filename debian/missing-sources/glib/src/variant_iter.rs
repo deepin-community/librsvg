@@ -4,9 +4,9 @@
 // introduce a heap allocation and doesn't provide a way to determine how
 // many items are left in the iterator.
 
-use std::iter::{DoubleEndedIterator, ExactSizeIterator, FusedIterator};
+use std::iter::FusedIterator;
 
-use crate::{translate::*, Variant};
+use crate::{ffi, translate::*, Variant};
 
 // rustdoc-stripper-ignore-next
 /// Iterator over items in a variant.
@@ -117,13 +117,13 @@ impl<'a> VariantStrIter<'a> {
 
     fn impl_get(&self, i: usize) -> &'a str {
         unsafe {
-            let p: *mut libc::c_char = std::ptr::null_mut();
+            let mut p: *mut libc::c_char = std::ptr::null_mut();
             let s = b"&s\0";
             ffi::g_variant_get_child(
                 self.variant.to_glib_none().0,
                 i,
                 s as *const u8 as *const _,
-                &p,
+                &mut p,
                 std::ptr::null::<i8>(),
             );
             let p = std::ffi::CStr::from_ptr(p);

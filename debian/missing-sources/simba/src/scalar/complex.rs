@@ -6,19 +6,12 @@ use std::ops::Neg;
 use std::{f32, f64};
 
 use crate::scalar::{Field, RealField, SubsetOf, SupersetOf};
-#[cfg(all(
-    any(target_arch = "nvptx", target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "cuda"
-))]
-use cuda_std::GpuFloat;
 #[cfg(all(not(feature = "std"), not(feature = "libm_force"), feature = "libm"))]
 use num::Float;
 //#[cfg(feature = "decimal")]
 //use decimal::d128;
 
-macro_rules! complex_trait_methods(
+macro_rules! complex_trait_methods (
     ($RealField: ident $(, $prefix: ident)*) => {
         paste::item! {
             /// Builds a pure-real complex number from the given value.
@@ -163,24 +156,25 @@ macro_rules! complex_trait_methods(
 ///
 /// Complex numbers are equipped with functions that are commonly used on complex numbers and reals.
 /// The results of those functions only have to be approximately equal to the actual theoretical values.
-// FIXME: SubsetOf should be removed when specialization will be supported by rustc. This will
+// TODO: SubsetOf should be removed when specialization will be supported by rustc. This will
 // allow a blanket impl: impl<T: Clone> SubsetOf<T> for T { ... }
 #[allow(missing_docs)]
 pub trait ComplexField:
-    SubsetOf<Self>
-    + SupersetOf<f64>
-    + FromPrimitive
-    + Field<Element = Self, SimdBool = bool>
-    + Neg<Output = Self>
-    + Clone
+SubsetOf<Self>
++ SupersetOf<f32>
++ SupersetOf<f64>
++ FromPrimitive
++ Field<Element=Self, SimdBool=bool>
++ Neg<Output=Self>
++ Clone
 //    + MeetSemilattice
 //    + JoinSemilattice
-    + Send
-    + Sync
-    + Any
-    + 'static
-    + Debug
-    + Display
++ Send
++ Sync
++ Any
++ 'static
++ Debug
++ Display
 {
     type RealField: RealField;
     complex_trait_methods!(RealField);
@@ -190,7 +184,7 @@ pub trait ComplexField:
 }
 
 #[cfg(not(feature = "libm_force"))]
-macro_rules! impl_complex(
+macro_rules! impl_complex (
     ($($T:ty, $M:ident, $libm: ident);*) => ($(
         impl ComplexField for $T {
             type RealField = $T;
@@ -312,7 +306,7 @@ macro_rules! impl_complex(
             #[cfg(not(feature = "std"))]
             #[inline]
             fn powi(self, n: i32) -> Self {
-                // FIXME: is there a more accurate solution?
+                // TODO: is there a more accurate solution?
                 $libm::powf(self, n as $T)
             }
 
@@ -475,13 +469,7 @@ macro_rules! impl_complex(
     )*)
 );
 
-#[cfg(all(
-    not(target_arch = "nvptx"),
-    not(target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "libm"
-))]
+#[cfg(all(not(feature = "std"), not(feature = "libm_force"), feature = "libm"))]
 impl_complex!(
     f32, f32, Float;
     f64, f64, Float
@@ -491,17 +479,6 @@ impl_complex!(
 impl_complex!(
     f32,f32,f32;
     f64,f64,f64
-);
-
-#[cfg(all(
-    any(target_arch = "nvptx", target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "cuda"
-))]
-impl_complex!(
-    f32, f32, GpuFloat;
-    f64, f64, GpuFloat
 );
 
 #[cfg(feature = "libm_force")]
@@ -1186,7 +1163,7 @@ impl<N: RealField + PartialOrd> ComplexField for num_complex::Complex<N> {
 
     #[inline]
     fn powi(self, n: i32) -> Self {
-        // FIXME: is there a more accurate solution?
+        // TODO: is there a more accurate solution?
         let n = N::from_subset(&(n as f64));
         self.powf(n)
     }

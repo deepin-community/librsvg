@@ -285,7 +285,7 @@ macro_rules! look_at_isometry_construction_impl(
         ///   * eye - The observer position.
         ///   * target - The target position.
         ///   * up - Vertical direction. The only requirement of this parameter is to not be collinear
-        ///   to `eye - at`. Non-collinearity is not checked.
+        ///     to `eye - at`. Non-collinearity is not checked.
         ///
         /// # Example
         ///
@@ -336,7 +336,7 @@ macro_rules! look_at_isometry_construction_impl(
         ///   * eye - The eye position.
         ///   * target - The target position.
         ///   * up - A vector approximately aligned with required the vertical axis. The only
-        ///   requirement of this parameter is to not be collinear to `target - eye`.
+        ///     requirement of this parameter is to not be collinear to `target - eye`.
         ///
         /// # Example
         ///
@@ -372,14 +372,14 @@ macro_rules! look_at_isometry_construction_impl(
         /// Builds a left-handed look-at view matrix.
         ///
         /// It maps the view direction `target - eye` to the **positive** `z` axis and the `eye` to the origin.
-        /// This conforms to the common notion of right handed camera look-at **view matrix** from
+        /// This conforms to the common notion of left handed camera look-at **view matrix** from
         /// the computer graphics community, i.e. the camera is assumed to look toward its local `z` axis.
         ///
         /// # Arguments
         ///   * eye - The eye position.
         ///   * target - The target position.
         ///   * up - A vector approximately aligned with required the vertical axis. The only
-        ///   requirement of this parameter is to not be collinear to `target - eye`.
+        ///     requirement of this parameter is to not be collinear to `target - eye`.
         ///
         /// # Example
         ///

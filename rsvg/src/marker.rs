@@ -197,21 +197,24 @@ impl Marker {
         };
 
         let elt = node.borrow_element();
-        let stacking_ctx = StackingContext::new(
+        let stacking_ctx = Box::new(StackingContext::new(
             draw_ctx.session(),
             acquired_nodes,
             &elt,
             transform,
             clip_rect,
             values,
-        );
+        ));
 
         draw_ctx.with_discrete_layer(
             &stacking_ctx,
             acquired_nodes,
             &content_viewport,
+            None,
             clipping,
-            &mut |an, dc| node.draw_children(an, &cascaded, &content_viewport, dc, clipping),
+            &mut |an, dc, new_viewport| {
+                node.draw_children(an, &cascaded, new_viewport, dc, clipping)
+            }, // content_viewport
         )
     }
 }
@@ -670,6 +673,16 @@ pub fn render_markers_for_shape(
     acquired_nodes: &mut AcquiredNodes<'_>,
     clipping: bool,
 ) -> Result<BoundingBox, InternalRenderingError> {
+    let path = match &shape.path {
+        layout::Path::Validated {
+            path,
+            extents: Some(_),
+            ..
+        } => path,
+        layout::Path::Validated { extents: None, .. } => return Ok(draw_ctx.empty_bbox()),
+        layout::Path::Invalid(_) => return Ok(draw_ctx.empty_bbox()),
+    };
+
     if shape.stroke.width.approx_eq_cairo(0.0) {
         return Ok(draw_ctx.empty_bbox());
     }
@@ -682,7 +695,7 @@ pub fn render_markers_for_shape(
     }
 
     emit_markers_for_path(
-        &shape.path,
+        path,
         draw_ctx.empty_bbox(),
         &mut |marker_type: MarkerType, x: f64, y: f64, computed_angle: Angle| {
             let marker = match marker_type {

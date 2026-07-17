@@ -5,6 +5,7 @@
 //! declarative, so other tools can read them as well.
 //!
 //! # Usage
+//!
 //! In your `Cargo.toml`:
 //!
 //! ```toml
@@ -78,6 +79,7 @@
 //! ```
 //!
 //! # Fallback library names
+//!
 //! Some libraries may be available under different names on different platforms or distributions.
 //! To allow for this, you can define fallback names to search for if the main library name does not work.
 //!
@@ -88,13 +90,16 @@
 //!
 //! You may also specify different fallback names for different versions:
 //!
+//! ```toml
 //! [package.metadata.system-deps.libfoo]
 //! version = "0.1"
 //! fallback-names = ["libfoo-0.1"]
 //! v1 = { version = "1.0", fallback-names = ["libfoo1"] }
 //! v2 = { version = "2.0", fallback-names = ["libfoo2"] }
+//! ```
 //!
 //! # Feature versions
+//!
 //! `-sys` crates willing to support various versions of their underlying system libraries
 //! can use features to control the version of the dependency required.
 //! `system-deps` will pick the highest version among enabled features.
@@ -149,8 +154,10 @@
 //! - `unix` and `windows`
 //!
 //! # Overriding build flags
+//!
 //! By default `system-deps` automatically defines the required build flags for each dependency using the information fetched from `pkg-config`.
 //! These flags can be overridden using environment variables if needed:
+//!
 //! - `SYSTEM_DEPS_$NAME_SEARCH_NATIVE` to override the [`cargo:rustc-link-search=native`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#cargorustc-link-searchkindpath) flag;
 //! - `SYSTEM_DEPS_$NAME_SEARCH_FRAMEWORK` to override the [`cargo:rustc-link-search=framework`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#cargorustc-link-searchkindpath) flag;
 //! - `SYSTEM_DEPS_$NAME_LIB` to override the [`cargo:rustc-link-lib`](https://doc.rust-lang.org/cargo/reference/build-scripts.html#rustc-link-lib) flag;
@@ -167,6 +174,7 @@
 //!
 //! `-sys` crates can provide support for building and statically link their underlying system library as part of their build process.
 //! Here is how to do this in your `build.rs`:
+//!
 //! ```should_panic
 //! fn main() {
 //!     system_deps::Config::new()
@@ -181,6 +189,7 @@
 //!
 //! This feature can be controlled using the `SYSTEM_DEPS_$NAME_BUILD_INTERNAL` environment variable
 //! which can have the following values:
+//!
 //! - `auto`: build the dependency only if the required version has not been found by `pkg-config`;
 //! - `always`: always build the dependency, ignoring any version which may be installed on the system;
 //! - `never`: (default) never build the dependency, `system-deps` will fail if the required version is not found on the system.
@@ -370,6 +379,18 @@ impl Dependencies {
         self.aggregate_path_buf(|l| &l.include_paths)
     }
 
+    /// Returns a vector of [Library::ld_args] of each library, removing duplicates.
+    pub fn all_linker_args(&self) -> Vec<&Vec<String>> {
+        let mut v = self
+            .libs
+            .values()
+            .flat_map(|l| &l.ld_args)
+            .collect::<Vec<_>>();
+        v.sort_unstable();
+        v.dedup();
+        v
+    }
+
     /// Returns a vector of [Library::defines] of each library, removing duplicates.
     pub fn all_defines(&self) -> Vec<(&str, &Option<String>)> {
         let mut v = self
@@ -416,6 +437,12 @@ impl Dependencies {
             if let Some(value) = env.get(&EnvVariable::new_include(name)) {
                 lib.include_paths = split_paths(&value);
             }
+            if let Some(value) = env.get(&EnvVariable::new_linker_args(name)) {
+                lib.ld_args = split_string(&value)
+                    .into_iter()
+                    .map(|l| l.split(',').map(|l| l.to_string()).collect())
+                    .collect();
+            }
         }
     }
 
@@ -448,6 +475,9 @@ impl Dependencies {
             lib.frameworks
                 .iter()
                 .for_each(|f| flags.add(BuildFlag::LibFramework(f.clone())));
+            lib.ld_args
+                .iter()
+                .for_each(|f| flags.add(BuildFlag::LinkArg(f.clone())))
         }
 
         // Export DEP_$CRATE_INCLUDE env variable with the headers paths,
@@ -528,6 +558,7 @@ enum EnvVariable {
     NoPkgConfig(String),
     BuildInternal(Option<String>),
     Link(Option<String>),
+    LinkerArgs(String),
 }
 
 impl EnvVariable {
@@ -549,6 +580,10 @@ impl EnvVariable {
 
     fn new_include(lib: &str) -> Self {
         Self::Include(lib.to_string())
+    }
+
+    fn new_linker_args(lib: &str) -> Self {
+        Self::LinkerArgs(lib.to_string())
     }
 
     fn new_no_pkg_config(lib: &str) -> Self {
@@ -573,6 +608,7 @@ impl EnvVariable {
             EnvVariable::NoPkgConfig(_) => "NO_PKG_CONFIG",
             EnvVariable::BuildInternal(_) => "BUILD_INTERNAL",
             EnvVariable::Link(_) => "LINK",
+            EnvVariable::LinkerArgs(_) => "LDFLAGS",
         }
     }
 
@@ -586,6 +622,7 @@ impl EnvVariable {
         add_to_flags(flags, EnvVariable::new_search_native(name));
         add_to_flags(flags, EnvVariable::new_search_framework(name));
         add_to_flags(flags, EnvVariable::new_include(name));
+        add_to_flags(flags, EnvVariable::new_linker_args(name));
         add_to_flags(flags, EnvVariable::new_no_pkg_config(name));
         add_to_flags(flags, EnvVariable::new_build_internal(Some(name)));
         add_to_flags(flags, EnvVariable::new_link(Some(name)));
@@ -600,6 +637,7 @@ impl fmt::Display for EnvVariable {
             | EnvVariable::SearchNative(lib)
             | EnvVariable::SearchFramework(lib)
             | EnvVariable::Include(lib)
+            | EnvVariable::LinkerArgs(lib)
             | EnvVariable::NoPkgConfig(lib)
             | EnvVariable::BuildInternal(Some(lib))
             | EnvVariable::Link(Some(lib)) => {
@@ -667,6 +705,7 @@ impl Config {
     /// # Arguments
     /// * `name`: the name of the library, as defined in `Cargo.toml`
     /// * `func`: closure called when internally building the library.
+    ///
     /// It receives as argument the library name, and the minimum version required.
     pub fn add_build_internal<F>(self, name: &str, func: F) -> Self
     where
@@ -695,6 +734,8 @@ impl Config {
             .ok_or_else(|| Error::InvalidMetadata("$CARGO_MANIFEST_DIR not set".into()))?;
         let mut path = PathBuf::from(dir);
         path.push("Cargo.toml");
+
+        println!("cargo:rerun-if-changed={}", &path.to_string_lossy());
 
         let metadata = MetaData::from_file(&path)?;
 
@@ -978,6 +1019,8 @@ pub struct Library {
     pub framework_paths: Vec<PathBuf>,
     /// directories where the compiler should look for header files
     pub include_paths: Vec<PathBuf>,
+    /// flags that should be passed to the linker
+    pub ld_args: Vec<Vec<String>>,
     /// macros that should be defined by the compiler
     pub defines: HashMap<String, Option<String>>,
     /// library version
@@ -1008,10 +1051,19 @@ impl Library {
         };
 
         let is_static_available = |name: &String| -> bool {
-            let libname = format!("lib{}.a", name);
+            let libnames = {
+                let mut names = vec![format!("lib{}.a", name)];
+
+                if cfg!(target_os = "windows") {
+                    names.push(format!("{}.lib", name));
+                }
+
+                names
+            };
 
             l.link_paths.iter().any(|dir| {
-                !system_roots.iter().any(|sys| dir.starts_with(sys)) && dir.join(&libname).exists()
+                let library_exists = libnames.iter().any(|libname| dir.join(libname).exists());
+                library_exists && !system_roots.iter().any(|sys| dir.starts_with(sys))
             })
         };
 
@@ -1025,6 +1077,7 @@ impl Library {
                 .collect(),
             link_paths: l.link_paths,
             include_paths: l.include_paths,
+            ld_args: l.ld_args,
             frameworks: l.frameworks,
             framework_paths: l.framework_paths,
             defines: l.defines,
@@ -1040,6 +1093,7 @@ impl Library {
             libs: Vec::new(),
             link_paths: Vec::new(),
             include_paths: Vec::new(),
+            ld_args: Vec::new(),
             frameworks: Vec::new(),
             framework_paths: Vec::new(),
             defines: HashMap::new(),
@@ -1159,6 +1213,7 @@ enum BuildFlag {
     Lib(String, bool), // true if static
     LibFramework(String),
     RerunIfEnvChanged(EnvVariable),
+    LinkArg(Vec<String>),
 }
 
 impl fmt::Display for BuildFlag {
@@ -1176,6 +1231,9 @@ impl fmt::Display for BuildFlag {
             }
             BuildFlag::LibFramework(lib) => write!(f, "rustc-link-lib=framework={}", lib),
             BuildFlag::RerunIfEnvChanged(env) => write!(f, "rerun-if-env-changed={}", env),
+            BuildFlag::LinkArg(ld_option) => {
+                write!(f, "rustc-link-arg=-Wl,{}", ld_option.join(","))
+            }
         }
     }
 }

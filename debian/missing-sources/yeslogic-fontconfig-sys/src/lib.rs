@@ -8,9 +8,6 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
-#[macro_use]
-extern crate const_cstr;
-
 use std::os::raw::{c_char, c_double, c_int, c_uchar, c_uint, c_ushort, c_void};
 
 pub use dlib::ffi_dispatch;
@@ -53,6 +50,8 @@ pub const FcTypeLangSet: u32 = 8_u32;
 pub type FcType = enum__FcType;
 
 pub mod constants {
+    use std::ffi::CStr;
+
     use super::c_int;
 
     pub const FC_WEIGHT_THIN: c_int = 0;
@@ -113,66 +112,64 @@ pub mod constants {
     pub const FC_CHARSET_DONE: u32 = u32::MAX;
     pub const FC_UTF8_MAX_LEN: c_int = 6;
 
-    const_cstr! {
-        pub FC_FAMILY = "family";
-        pub FC_STYLE = "style";
-        pub FC_SLANT = "slant";
-        pub FC_WEIGHT = "weight";
-        pub FC_SIZE = "size";
-        pub FC_ASPECT = "aspect";
-        pub FC_PIXEL_SIZE = "pixelsize";
-        pub FC_SPACING = "spacing";
-        pub FC_FOUNDRY = "foundry";
-        pub FC_ANTIALIAS = "antialias";
-        pub FC_HINTING = "hinting";
-        pub FC_HINT_STYLE = "hintstyle";
-        pub FC_VERTICAL_LAYOUT = "verticallayout";
-        pub FC_AUTOHINT = "autohint";
-        pub FC_GLOBAL_ADVANCE = "globaladvance";
-        pub FC_WIDTH = "width";
-        pub FC_FILE = "file";
-        pub FC_INDEX = "index";
-        pub FC_FT_FACE = "ftface";
-        pub FC_RASTERIZER = "rasterizer";
-        pub FC_OUTLINE = "outline";
-        pub FC_SCALABLE = "scalable";
-        pub FC_COLOR = "color";
-        pub FC_VARIABLE = "variable";
-        pub FC_SCALE = "scale";
-        pub FC_SYMBOL = "symbol";
-        pub FC_DPI = "dpi";
-        pub FC_RGBA = "rgba";
-        pub FC_MINSPACE = "minspace";
-        pub FC_SOURCE = "source";
-        pub FC_CHARSET = "charset";
-        pub FC_LANG = "lang";
-        pub FC_FONTVERSION = "fontversion";
-        pub FC_FULLNAME = "fullname";
-        pub FC_FAMILYLANG = "familylang";
-        pub FC_STYLELANG = "stylelang";
-        pub FC_FULLNAMELANG = "fullnamelang";
-        pub FC_CAPABILITY = "capability";
-        pub FC_FONTFORMAT = "fontformat";
-        pub FC_EMBOLDEN = "embolden";
-        pub FC_EMBEDDED_BITMAP = "embeddedbitmap";
-        pub FC_DECORATIVE = "decorative";
-        pub FC_LCD_FILTER = "lcdfilter";
-        pub FC_FONT_FEATURES = "fontfeatures";
-        pub FC_FONT_VARIATIONS = "fontvariations";
-        pub FC_NAMELANG = "namelang";
-        pub FC_PRGNAME = "prgname";
-        pub FC_HASH = "hash";
-        pub FC_POSTSCRIPT_NAME = "postscriptname";
-        pub FC_FONT_HAS_HINT = "fonthashint";
-        pub FC_CACHE_SUFFIX = ".cache-";
-        pub FC_DIR_CACHE_FILE = "fonts.cache-";
-        pub FC_USER_CACHE_FILE = ".fonts.cache-";
-        pub FC_CHARWIDTH = "charwidth";
-        pub FC_CHAR_WIDTH = "charwidth";
-        pub FC_CHAR_HEIGHT = "charheight";
-        pub FC_MATRIX = "matrix";
-        pub FC_ORDER = "order";
-    }
+    pub const FC_FAMILY: &CStr = c"family";
+    pub const FC_STYLE: &CStr = c"style";
+    pub const FC_SLANT: &CStr = c"slant";
+    pub const FC_WEIGHT: &CStr = c"weight";
+    pub const FC_SIZE: &CStr = c"size";
+    pub const FC_ASPECT: &CStr = c"aspect";
+    pub const FC_PIXEL_SIZE: &CStr = c"pixelsize";
+    pub const FC_SPACING: &CStr = c"spacing";
+    pub const FC_FOUNDRY: &CStr = c"foundry";
+    pub const FC_ANTIALIAS: &CStr = c"antialias";
+    pub const FC_HINTING: &CStr = c"hinting";
+    pub const FC_HINT_STYLE: &CStr = c"hintstyle";
+    pub const FC_VERTICAL_LAYOUT: &CStr = c"verticallayout";
+    pub const FC_AUTOHINT: &CStr = c"autohint";
+    pub const FC_GLOBAL_ADVANCE: &CStr = c"globaladvance";
+    pub const FC_WIDTH: &CStr = c"width";
+    pub const FC_FILE: &CStr = c"file";
+    pub const FC_INDEX: &CStr = c"index";
+    pub const FC_FT_FACE: &CStr = c"ftface";
+    pub const FC_RASTERIZER: &CStr = c"rasterizer";
+    pub const FC_OUTLINE: &CStr = c"outline";
+    pub const FC_SCALABLE: &CStr = c"scalable";
+    pub const FC_COLOR: &CStr = c"color";
+    pub const FC_VARIABLE: &CStr = c"variable";
+    pub const FC_SCALE: &CStr = c"scale";
+    pub const FC_SYMBOL: &CStr = c"symbol";
+    pub const FC_DPI: &CStr = c"dpi";
+    pub const FC_RGBA: &CStr = c"rgba";
+    pub const FC_MINSPACE: &CStr = c"minspace";
+    pub const FC_SOURCE: &CStr = c"source";
+    pub const FC_CHARSET: &CStr = c"charset";
+    pub const FC_LANG: &CStr = c"lang";
+    pub const FC_FONTVERSION: &CStr = c"fontversion";
+    pub const FC_FULLNAME: &CStr = c"fullname";
+    pub const FC_FAMILYLANG: &CStr = c"familylang";
+    pub const FC_STYLELANG: &CStr = c"stylelang";
+    pub const FC_FULLNAMELANG: &CStr = c"fullnamelang";
+    pub const FC_CAPABILITY: &CStr = c"capability";
+    pub const FC_FONTFORMAT: &CStr = c"fontformat";
+    pub const FC_EMBOLDEN: &CStr = c"embolden";
+    pub const FC_EMBEDDED_BITMAP: &CStr = c"embeddedbitmap";
+    pub const FC_DECORATIVE: &CStr = c"decorative";
+    pub const FC_LCD_FILTER: &CStr = c"lcdfilter";
+    pub const FC_FONT_FEATURES: &CStr = c"fontfeatures";
+    pub const FC_FONT_VARIATIONS: &CStr = c"fontvariations";
+    pub const FC_NAMELANG: &CStr = c"namelang";
+    pub const FC_PRGNAME: &CStr = c"prgname";
+    pub const FC_HASH: &CStr = c"hash";
+    pub const FC_POSTSCRIPT_NAME: &CStr = c"postscriptname";
+    pub const FC_FONT_HAS_HINT: &CStr = c"fonthashint";
+    pub const FC_CACHE_SUFFIX: &CStr = c".cache-";
+    pub const FC_DIR_CACHE_FILE: &CStr = c"fonts.cache-";
+    pub const FC_USER_CACHE_FILE: &CStr = c".fonts.cache-";
+    pub const FC_CHARWIDTH: &CStr = c"charwidth";
+    pub const FC_CHAR_WIDTH: &CStr = c"charwidth";
+    pub const FC_CHAR_HEIGHT: &CStr = c"charheight";
+    pub const FC_MATRIX: &CStr = c"matrix";
+    pub const FC_ORDER: &CStr = c"order";
 }
 
 #[repr(C)]

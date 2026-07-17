@@ -7,14 +7,14 @@ use std::io::Write;
 use super::AutoBreak;
 use super::{ArbitraryHeader, ArbitraryTuplType, BitmapHeader, GraymapHeader, PixmapHeader};
 use super::{HeaderRecord, PnmHeader, PnmSubtype, SampleEncoding};
-use crate::color::{ColorType, ExtendedColorType};
+use crate::color::ExtendedColorType;
 use crate::error::{
     ImageError, ImageResult, ParameterError, ParameterErrorKind, UnsupportedError,
     UnsupportedErrorKind,
 };
 use crate::image::{ImageEncoder, ImageFormat};
 
-use byteorder::{BigEndian, WriteBytesExt};
+use byteorder_lite::{BigEndian, WriteBytesExt};
 
 enum HeaderStrategy {
     Dynamic,
@@ -79,7 +79,7 @@ enum TupleEncoding<'a> {
 }
 
 impl<W: Write> PnmEncoder<W> {
-    /// Create new PnmEncoder from the `writer`.
+    /// Create new `PnmEncoder` from the `writer`.
     ///
     /// The encoded images will have some `pnm` format. If more control over the image type is
     /// required, use either one of `with_subtype` or `with_header`. For more information on the
@@ -144,27 +144,20 @@ impl<W: Write> PnmEncoder<W> {
         image: S,
         width: u32,
         height: u32,
-        color: ColorType,
+        color: ExtendedColorType,
     ) -> ImageResult<()>
     where
         S: Into<FlatSamples<'s>>,
     {
         let image = image.into();
         match self.header {
-            HeaderStrategy::Dynamic => {
-                self.write_dynamic_header(image, width, height, color.into())
-            }
+            HeaderStrategy::Dynamic => self.write_dynamic_header(image, width, height, color),
             HeaderStrategy::Subtype(subtype) => {
-                self.write_subtyped_header(subtype, image, width, height, color.into())
+                self.write_subtyped_header(subtype, image, width, height, color)
             }
-            HeaderStrategy::Chosen(ref header) => Self::write_with_header(
-                &mut self.writer,
-                header,
-                image,
-                width,
-                height,
-                color.into(),
-            ),
+            HeaderStrategy::Chosen(ref header) => {
+                Self::write_with_header(&mut self.writer, header, image, width, height, color)
+            }
         }
     }
 
@@ -245,15 +238,16 @@ impl<W: Write> PnmEncoder<W> {
                 }),
                 encoded: None,
             },
-            (PnmSubtype::Bitmap(encoding), ExtendedColorType::L8)
-            | (PnmSubtype::Bitmap(encoding), ExtendedColorType::L1) => PnmHeader {
-                decoded: HeaderRecord::Bitmap(BitmapHeader {
-                    encoding,
-                    width,
-                    height,
-                }),
-                encoded: None,
-            },
+            (PnmSubtype::Bitmap(encoding), ExtendedColorType::L8 | ExtendedColorType::L1) => {
+                PnmHeader {
+                    decoded: HeaderRecord::Bitmap(BitmapHeader {
+                        encoding,
+                        height,
+                        width,
+                    }),
+                    encoded: None,
+                }
+            }
             (_, _) => {
                 return Err(ImageError::Parameter(ParameterError::from_kind(
                     ParameterErrorKind::Generic(
@@ -289,16 +283,20 @@ impl<W: Write> PnmEncoder<W> {
 }
 
 impl<W: Write> ImageEncoder for PnmEncoder<W> {
+    #[track_caller]
     fn write_image(
         mut self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
+        let expected_buffer_len = color_type.buffer_size(width, height);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(color_type.bytes_per_pixel() as u64),
-            buf.len() as u64
+            expected_buffer_len,
+            buf.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            buf.len(),
         );
 
         self.encode(buf, width, height, color_type)
@@ -426,8 +424,7 @@ impl<'a> CheckedDimensions<'a> {
                 _ if depth != components => {
                     return Err(ImageError::Parameter(ParameterError::from_kind(
                         ParameterErrorKind::Generic(format!(
-                            "Depth mismatch: header {} vs. color {}",
-                            depth, components
+                            "Depth mismatch: header {depth} vs. color {components}"
                         )),
                     )))
                 }
@@ -525,7 +522,7 @@ impl<'a> CheckedHeader<'a> {
 
 struct SampleWriter<'a>(&'a mut dyn Write);
 
-impl<'a> SampleWriter<'a> {
+impl SampleWriter<'_> {
     fn write_samples_ascii<V>(self, samples: V) -> io::Result<()>
     where
         V: Iterator,
@@ -533,7 +530,7 @@ impl<'a> SampleWriter<'a> {
     {
         let mut auto_break_writer = AutoBreak::new(self.0, 70);
         for value in samples {
-            write!(auto_break_writer, "{} ", value)?;
+            write!(auto_break_writer, "{value} ")?;
         }
         auto_break_writer.flush()
     }
@@ -556,11 +553,11 @@ impl<'a> SampleWriter<'a> {
                     // Black pixels are encoded as 1s
                     if let Some(&v) = byte_bits.get(i) {
                         if v == V::default() {
-                            byte |= 1u8 << (7 - i)
+                            byte |= 1u8 << (7 - i);
                         }
                     }
                 }
-                line_buffer.push(byte)
+                line_buffer.push(byte);
             }
             self.0.write_all(line_buffer.as_slice())?;
             line_buffer.clear();
@@ -636,7 +633,7 @@ impl<'a> From<&'a [u16]> for FlatSamples<'a> {
     }
 }
 
-impl<'a> TupleEncoding<'a> {
+impl TupleEncoding<'_> {
     fn write_image(&self, writer: &mut dyn Write) -> ImageResult<()> {
         match *self {
             TupleEncoding::PbmBits {

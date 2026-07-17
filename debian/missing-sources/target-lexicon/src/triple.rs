@@ -137,6 +137,7 @@ impl Triple {
             | OperatingSystem::Fuchsia
             | OperatingSystem::Haiku
             | OperatingSystem::Hermit
+            | OperatingSystem::Hurd
             | OperatingSystem::L4re
             | OperatingSystem::Linux
             | OperatingSystem::Netbsd
@@ -163,6 +164,7 @@ impl Triple {
                     Ok(CDataModel::LLP64)
                 } else if self.default_calling_convention() == Ok(CallingConvention::SystemV)
                     || self.architecture == Architecture::Wasm64
+                    || self.default_calling_convention() == Ok(CallingConvention::AppleAarch64)
                 {
                     Ok(CDataModel::LP64)
                 } else {
@@ -215,14 +217,16 @@ impl fmt::Display for Triple {
                 && (self.environment == Environment::Android
                     || self.environment == Environment::Androideabi
                     || self.environment == Environment::Kernel))
-                || self.operating_system == OperatingSystem::Fuchsia
                 || self.operating_system == OperatingSystem::Wasi
+                || self.operating_system == OperatingSystem::WasiP1
+                || self.operating_system == OperatingSystem::WasiP2
                 || (self.operating_system == OperatingSystem::None_
                     && (self.architecture == Architecture::Arm(ArmArchitecture::Armv4t)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Armv5te)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Armebv7r)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Armv7a)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Armv7r)
+                        || self.architecture == Architecture::Arm(ArmArchitecture::Armv8r)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Thumbv4t)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Thumbv5te)
                         || self.architecture == Architecture::Arm(ArmArchitecture::Thumbv6m)
@@ -232,7 +236,7 @@ impl fmt::Display for Triple {
                         || self.architecture == Architecture::Arm(ArmArchitecture::Thumbv8mMain)
                         || self.architecture == Architecture::Msp430)))
         {
-            // As a special case, omit the vendor for Android, Fuchsia, Wasi, and sometimes
+            // As a special case, omit the vendor for Android, Wasi, and sometimes
             // None_, depending on the hardware architecture. This logic is entirely
             // ad-hoc, and is just sufficient to handle the current set of recognized
             // triples.
@@ -257,11 +261,35 @@ impl fmt::Display for Triple {
             }
         }
 
-        if self.binary_format != implied_binary_format {
+        if self.binary_format != implied_binary_format || show_binary_format_with_no_os(self) {
+            // As a special case, omit a non-default binary format for some
+            // targets which happen to exclude it.
             write!(f, "-{}", self.binary_format)?;
         }
         Ok(())
     }
+}
+
+fn show_binary_format_with_no_os(triple: &Triple) -> bool {
+    if triple.binary_format == BinaryFormat::Unknown {
+        return false;
+    }
+
+    #[cfg(feature = "arch_zkasm")]
+    {
+        if triple.architecture == Architecture::ZkAsm {
+            return false;
+        }
+    }
+
+    triple.environment != Environment::Eabi
+        && triple.environment != Environment::Eabihf
+        && triple.environment != Environment::Sgx
+        && triple.architecture != Architecture::Avr
+        && triple.architecture != Architecture::Wasm32
+        && triple.architecture != Architecture::Wasm64
+        && (triple.operating_system == OperatingSystem::None_
+            || triple.operating_system == OperatingSystem::Unknown)
 }
 
 impl FromStr for Triple {
@@ -477,13 +505,12 @@ mod tests {
             "aarch64-apple-tvos",
             "aarch64-apple-watchos",
         ] {
+            let triple = Triple::from_str(triple).unwrap();
             assert_eq!(
-                Triple::from_str(triple)
-                    .unwrap()
-                    .default_calling_convention()
-                    .unwrap(),
+                triple.default_calling_convention().unwrap(),
                 CallingConvention::AppleAarch64
             );
+            assert_eq!(triple.data_model().unwrap(), CDataModel::LP64);
         }
 
         for triple in &["aarch64-linux-android", "x86_64-apple-ios"] {

@@ -10,6 +10,20 @@ use std::path::Path;
 #[cfg(feature = "embed_image")]
 use crate::Result;
 
+#[derive(Debug, Clone)]
+pub struct PdfImage<'a> {
+    pub id: ObjectId,
+    pub width: i64,
+    pub height: i64,
+    pub color_space: Option<String>,
+    pub filters: Option<Vec<String>>,
+    pub bits_per_component: Option<i64>,
+    /// Image Data
+    pub content: &'a [u8],
+    /// Origin Stream Dictionary
+    pub origin_dict: &'a Dictionary,
+}
+
 pub fn form(boundingbox: Vec<f32>, matrix: Vec<f32>, content: Vec<u8>) -> Stream {
     let mut dict = Dictionary::new();
     dict.set("Type", Object::Name(b"XObject".to_vec()));
@@ -87,11 +101,23 @@ pub fn image_from(buffer: Vec<u8>) -> Result<Stream> {
     }
 }
 
-#[cfg(feature = "embed_image")]
+#[cfg(all(feature = "embed_image", not(feature = "async")))]
 #[test]
 fn insert_image() {
     use super::xobject;
     let mut doc = Document::load("assets/example.pdf").unwrap();
+    let pages = doc.get_pages();
+    let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
+    let img = xobject::image("assets/pdf_icon.jpg").unwrap();
+    doc.insert_image(page_id, img, (100.0, 210.0), (400.0, 225.0)).unwrap();
+    doc.save("test_5_image.pdf").unwrap();
+}
+
+#[cfg(all(feature = "embed_image", feature = "async"))]
+#[tokio::test]
+async fn insert_image() {
+    use super::xobject;
+    let mut doc = Document::load("assets/example.pdf").await.unwrap();
     let pages = doc.get_pages();
     let page_id = *pages.get(&1).expect(&format!("Page {} not exist.", 1));
     let img = xobject::image("assets/pdf_icon.jpg").unwrap();

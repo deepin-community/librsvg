@@ -324,6 +324,79 @@ macro_rules! impl_shr_t_for_i32x4 {
 }
 impl_shr_t_for_i32x4!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128);
 
+/// Shifts lanes by the corresponding lane.
+///
+/// Bitwise shift-right; yields `self >> mask(rhs)`, where mask removes any
+/// high-order bits of `rhs` that would cause the shift to exceed the bitwidth
+/// of the type. (same as `wrapping_shr`)
+impl Shr<i32x4> for i32x4 {
+  type Output = Self;
+
+  #[inline]
+  #[must_use]
+  fn shr(self, rhs: i32x4) -> Self::Output {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        // mask the shift count to 31 to have same behavior on all platforms
+        let shift_by = bitand_m128i(rhs.sse, set_splat_i32_m128i(31));
+        Self { sse: shr_each_i32_m128i(self.sse, shift_by) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {
+          // mask the shift count to 31 to have same behavior on all platforms
+          // no right shift, have to pass negative value to left shift on neon
+          let shift_by = vnegq_s32(vandq_s32(rhs.neon, vmovq_n_s32(31)));
+          Self { neon: vshlq_s32(self.neon, shift_by) }
+        }
+      } else {
+        let arr: [i32; 4] = cast(self);
+        let rhs: [i32; 4] = cast(rhs);
+        cast([
+          arr[0].wrapping_shr(rhs[0] as u32),
+          arr[1].wrapping_shr(rhs[1] as u32),
+          arr[2].wrapping_shr(rhs[2] as u32),
+          arr[3].wrapping_shr(rhs[3] as u32),
+        ])
+      }
+    }
+  }
+}
+
+/// Shifts lanes by the corresponding lane.
+///
+/// Bitwise shift-left; yields `self << mask(rhs)`, where mask removes any
+/// high-order bits of `rhs` that would cause the shift to exceed the bitwidth
+/// of the type. (same as `wrapping_shl`)
+impl Shl<i32x4> for i32x4 {
+  type Output = Self;
+
+  #[inline]
+  #[must_use]
+  fn shl(self, rhs: i32x4) -> Self::Output {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        // mask the shift count to 31 to have same behavior on all platforms
+        let shift_by = bitand_m128i(rhs.sse, set_splat_i32_m128i(31));
+        Self { sse: shl_each_u32_m128i(self.sse, shift_by) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {
+          // mask the shift count to 31 to have same behavior on all platforms
+          let shift_by = vandq_s32(rhs.neon, vmovq_n_s32(31));
+          Self { neon: vshlq_s32(self.neon, shift_by) }
+        }
+      } else {
+        let arr: [i32; 4] = cast(self);
+        let rhs: [i32; 4] = cast(rhs);
+        cast([
+          arr[0].wrapping_shl(rhs[0] as u32),
+          arr[1].wrapping_shl(rhs[1] as u32),
+          arr[2].wrapping_shl(rhs[2] as u32),
+          arr[3].wrapping_shl(rhs[3] as u32),
+        ])
+      }
+    }
+  }
+}
+
 impl CmpEq for i32x4 {
   type Output = Self;
   #[inline]
@@ -417,6 +490,54 @@ impl i32x4 {
       }
     }
   }
+
+  /// Multiplies corresponding 32 bit lanes and returns the 64 bit result
+  /// on the corresponding lanes.
+  ///
+  /// Effectively does two multiplies on 128 bit platforms, but is easier
+  /// to use than wrapping mul_widen_i32_odd_m128i individually.
+  #[inline]
+  #[must_use]
+  pub fn mul_widen(self, rhs: Self) -> i64x4 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        let a = convert_to_i64_m256i_from_i32_m128i(self.sse);
+        let b = convert_to_i64_m256i_from_i32_m128i(rhs.sse);
+        cast(mul_i64_low_bits_m256i(a, b))
+      } else if #[cfg(target_feature="sse4.1")] {
+          let evenp = mul_widen_i32_odd_m128i(self.sse, rhs.sse);
+
+          let oddp = mul_widen_i32_odd_m128i(
+            shr_imm_u64_m128i::<32>(self.sse),
+            shr_imm_u64_m128i::<32>(rhs.sse));
+
+          i64x4 {
+            a: i64x2 { sse: unpack_low_i64_m128i(evenp, oddp)},
+            b: i64x2 { sse: unpack_high_i64_m128i(evenp, oddp)}
+          }
+      } else if #[cfg(target_feature="simd128")] {
+          i64x4 {
+            a: i64x2 { simd: i64x2_extmul_low_i32x4(self.simd, rhs.simd) },
+            b: i64x2 { simd: i64x2_extmul_high_i32x4(self.simd, rhs.simd) },
+          }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe {
+          i64x4 { a: i64x2 { neon: vmull_s32(vget_low_s32(self.neon), vget_low_s32(rhs.neon)) },
+                  b: i64x2 { neon: vmull_s32(vget_high_s32(self.neon), vget_high_s32(rhs.neon)) } }
+        }
+      } else {
+        let a: [i32; 4] = cast(self);
+        let b: [i32; 4] = cast(rhs);
+        cast([
+          i64::from(a[0]) * i64::from(b[0]),
+          i64::from(a[1]) * i64::from(b[1]),
+          i64::from(a[2]) * i64::from(b[2]),
+          i64::from(a[3]) * i64::from(b[3]),
+        ])
+      }
+    }
+  }
+
   #[inline]
   #[must_use]
   pub fn abs(self) -> Self {
@@ -434,6 +555,28 @@ impl i32x4 {
           arr[1].wrapping_abs(),
           arr[2].wrapping_abs(),
           arr[3].wrapping_abs(),
+        ])
+      }
+    }
+  }
+
+  #[inline]
+  #[must_use]
+  pub fn unsigned_abs(self) -> u32x4 {
+    pick! {
+      if #[cfg(target_feature="ssse3")] {
+        u32x4 { sse: abs_i32_m128i(self.sse) }
+      } else if #[cfg(target_feature="simd128")] {
+        u32x4 { simd: i32x4_abs(self.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {u32x4 { neon: vreinterpretq_u32_s32(vabsq_s32(self.neon)) }}
+      } else {
+        let arr: [i32; 4] = cast(self);
+        cast([
+          arr[0].unsigned_abs(),
+          arr[1].unsigned_abs(),
+          arr[2].unsigned_abs(),
+          arr[3].unsigned_abs(),
         ])
       }
     }
@@ -529,6 +672,7 @@ impl i32x4 {
   pub fn move_mask(self) -> i32 {
     pick! {
       if #[cfg(target_feature="sse")] {
+        // use f32 move_mask since it is the same size as i32
         move_mask_m128(cast(self.sse))
       } else if #[cfg(target_feature="simd128")] {
         u32x4_bitmask(self.simd) as i32
@@ -542,14 +686,14 @@ impl i32x4 {
           let selectbit : uint32x4_t = core::intrinsics::transmute([1u32, 2, 4, 8]);
           let r = vandq_u32(masked, selectbit);
 
-          // horizontally add the 16-bit lanes
+          // horizontally add the 32-bit lanes
           vaddvq_u32(r) as i32
          }
       } else {
-        (((self.arr[0] as i32) < 0) as i32) << 0 |
-        (((self.arr[1] as i32) < 0) as i32) << 1 |
-        (((self.arr[2] as i32) < 0) as i32) << 2 |
-        (((self.arr[3] as i32) < 0) as i32) << 3
+        ((self.arr[0] < 0) as i32) << 0 |
+        ((self.arr[1] < 0) as i32) << 1 |
+        ((self.arr[2] < 0) as i32) << 2 |
+        ((self.arr[3] < 0) as i32) << 3
       }
     }
   }
@@ -558,10 +702,16 @@ impl i32x4 {
   #[must_use]
   pub fn any(self) -> bool {
     pick! {
-      if #[cfg(target_feature="sse2")] {
-        (move_mask_i8_m128i(self.sse) & 0b1000100010001000) != 0
+      if #[cfg(target_feature="sse")] {
+        // use f32 move_mask since it is the same size as i32
+        move_mask_m128(cast(self.sse)) != 0
       } else if #[cfg(target_feature="simd128")] {
         u32x4_bitmask(self.simd) != 0
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        // some lanes are negative
+        unsafe {
+          vminvq_s32(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         ((v[0] | v[1]) & 0x8000000080000000) != 0
@@ -573,10 +723,16 @@ impl i32x4 {
   #[must_use]
   pub fn all(self) -> bool {
     pick! {
-      if #[cfg(target_feature="sse2")] {
-        (move_mask_i8_m128i(self.sse) & 0b1000100010001000) == 0b1000100010001000
+      if #[cfg(target_feature="sse")] {
+        // use f32 move_mask since it is the same size as i32
+        move_mask_m128(cast(self.sse)) == 0b1111
       } else if #[cfg(target_feature="simd128")] {
         u32x4_bitmask(self.simd) == 0b1111
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        // all lanes are negative
+        unsafe {
+          vmaxvq_s32(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         (v[0] & v[1] & 0x8000000080000000) == 0x8000000080000000

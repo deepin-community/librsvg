@@ -4,13 +4,13 @@
 //! implemented as follows:
 //!
 //! * [`RsvgHandle`] and [`RsvgHandleClass`] are derivatives of `GObject` and
-//! `GObjectClass`.  These are coded explicitly, instead of using
-//! [`glib::subclass::prelude::InstanceStruct<T>`] and
-//! [`glib::subclass::prelude::ClassStruct<T>`], as the structs need need to be kept
-//! ABI-compatible with the traditional C API/ABI.
+//!   `GObjectClass`.  These are coded explicitly, instead of using
+//!   [`glib::subclass::prelude::InstanceStruct<T>`] and
+//!   [`glib::subclass::prelude::ClassStruct<T>`], as the structs need need to be kept
+//!   ABI-compatible with the traditional C API/ABI.
 //!
 //! * The actual data for a handle (e.g. the `RsvgHandle`'s private data, in GObject
-//! parlance) is in [`CHandle`].
+//!   parlance) is in [`CHandle`].
 //!
 //! * Public C ABI functions are the `#[no_mangle]` functions with an `rsvg_` prefix.
 //!
@@ -19,15 +19,17 @@
 //! historical idiosyncrasies of the C API into the simple Rust API.
 
 use std::cell::{Cell, Ref, RefCell, RefMut};
+use std::f64;
 use std::ffi::{CStr, CString, OsStr};
 use std::fmt;
 use std::path::PathBuf;
 use std::ptr;
 use std::slice;
 use std::str;
-use std::{f64, i32};
 
+#[cfg(feature = "pixbuf")]
 use gdk_pixbuf::Pixbuf;
+
 use gio::prelude::*;
 use glib::error::ErrorDomain;
 use url::Url;
@@ -38,12 +40,18 @@ use glib::types::instance_of;
 use glib::Bytes;
 use glib::{ffi::gpointer, gobject_ffi};
 
-use rsvg::c_api_only::{rsvg_log, Session, SharedImageSurface, SurfaceType};
+use rsvg::c_api_only::{rsvg_log, Session};
 use rsvg::{CairoRenderer, IntrinsicDimensions, Length, Loader, LoadingError, SvgHandle};
 
 use super::dpi::Dpi;
 use super::messages::{rsvg_g_critical, rsvg_g_warning};
-use super::pixbuf_utils::{empty_pixbuf, pixbuf_from_surface};
+
+#[cfg(feature = "pixbuf")]
+use {
+    super::pixbuf_utils::{empty_pixbuf, pixbuf_from_surface},
+    rsvg::c_api_only::{SharedImageSurface, SurfaceType},
+};
+
 use super::sizing::LegacySize;
 
 // The C API exports global variables that contain the library's version number;
@@ -287,6 +295,7 @@ mod imp {
         pub(super) dpi: Dpi,
         pub(super) handle_flags: HandleFlags,
         pub(super) base_url: BaseUrl,
+        pub(super) cancellable: Option<gio::Cancellable>,
         pub(super) size_callback: SizeCallback,
         pub(super) is_testing: bool,
     }
@@ -724,9 +733,15 @@ impl CHandle {
     fn make_renderer<'a>(&self, handle_ref: &'a Ref<'_, SvgHandle>) -> CairoRenderer<'a> {
         let inner = self.imp().inner.borrow();
 
-        CairoRenderer::new(handle_ref)
+        let renderer = CairoRenderer::new(handle_ref)
             .with_dpi(inner.dpi.x(), inner.dpi.y())
-            .test_mode(inner.is_testing)
+            .test_mode(inner.is_testing);
+
+        if let Some(ref cancellable) = inner.cancellable {
+            renderer.with_cancellable(cancellable)
+        } else {
+            renderer
+        }
     }
 
     fn get_geometry_sub(
@@ -753,6 +768,11 @@ impl CHandle {
         }
     }
 
+    fn set_cancellable_for_rendering(&self, cancellable: Option<&gio::Cancellable>) {
+        let mut inner = self.imp().inner.borrow_mut();
+        inner.cancellable = cancellable.cloned();
+    }
+
     fn render_cairo_sub(
         &self,
         cr: *mut cairo::ffi::cairo_t,
@@ -774,6 +794,7 @@ impl CHandle {
         self.render_layer(cr, id, &viewport)
     }
 
+    #[cfg(feature = "pixbuf")]
     fn get_pixbuf_sub(&self, id: Option<&str>) -> Result<Pixbuf, RenderingError> {
         let dimensions = self.get_dimensions_sub(None)?;
 
@@ -1042,23 +1063,22 @@ pub unsafe extern "C" fn rsvg_handle_internal_set_testing(
 }
 
 trait IntoGError {
-    type GlibResult;
+    fn into_gerror(
+        self,
+        session: &Session,
+        error: *mut *mut glib::ffi::GError,
+    ) -> glib::ffi::gboolean;
 
-    fn into_gerror(self, session: &Session, error: *mut *mut glib::ffi::GError)
-        -> Self::GlibResult;
-
-    fn into_g_warning(self) -> Self::GlibResult;
+    fn into_g_warning(self) -> glib::ffi::gboolean;
 }
 
-impl<E: fmt::Display> IntoGError for Result<(), E> {
-    type GlibResult = glib::ffi::gboolean;
-
+impl IntoGError for Result<(), LoadingError> {
     /// Use this one when the public API actually uses a GError.
     fn into_gerror(
         self,
         session: &Session,
         error: *mut *mut glib::ffi::GError,
-    ) -> Self::GlibResult {
+    ) -> glib::ffi::gboolean {
         match self {
             Ok(()) => true.into_glib(),
 
@@ -1070,7 +1090,49 @@ impl<E: fmt::Display> IntoGError for Result<(), E> {
     }
 
     /// Use this one when the public API doesn't use a GError.
-    fn into_g_warning(self) -> Self::GlibResult {
+    fn into_g_warning(self) -> glib::ffi::gboolean {
+        match self {
+            Ok(()) => true.into_glib(),
+
+            Err(e) => {
+                rsvg_g_warning(&format!("{e}"));
+                false.into_glib()
+            }
+        }
+    }
+}
+
+impl IntoGError for Result<(), RenderingError> {
+    /// Use this one when the public API actually uses a GError.
+    fn into_gerror(
+        self,
+        session: &Session,
+        error: *mut *mut glib::ffi::GError,
+    ) -> glib::ffi::gboolean {
+        match self {
+            Ok(()) => true.into_glib(),
+
+            Err(RenderingError::RenderingError(rsvg::RenderingError::Cancelled)) => {
+                unsafe {
+                    glib::ffi::g_set_error_literal(
+                        error,
+                        gio::ffi::g_io_error_quark(),
+                        gio::ffi::G_IO_ERROR_CANCELLED,
+                        "rendering cancelled".to_glib_none().0,
+                    );
+                }
+                false.into_glib()
+            }
+
+            Err(e) => {
+                set_gerror(session, error, 0, &format!("{e}"));
+                false.into_glib()
+            }
+        }
+    }
+
+    /// Use this one when the public API doesn't use a GError.
+    fn into_g_warning(self) -> glib::ffi::gboolean {
         match self {
             Ok(()) => true.into_glib(),
 
@@ -1208,6 +1270,7 @@ pub unsafe extern "C" fn rsvg_handle_render_cairo_sub(
 }
 
 #[no_mangle]
+#[cfg(feature = "pixbuf")]
 pub unsafe extern "C" fn rsvg_handle_get_pixbuf(
     handle: *const RsvgHandle,
 ) -> *mut gdk_pixbuf::ffi::GdkPixbuf {
@@ -1217,21 +1280,49 @@ pub unsafe extern "C" fn rsvg_handle_get_pixbuf(
         is_rsvg_handle(handle),
     }
 
+    let mut error = ptr::null_mut();
+    let pixbuf = rsvg_handle_get_pixbuf_and_error(handle, &mut error);
+
+    if !error.is_null() {
+        let rhandle = get_rust_handle(handle);
+        let session = &rhandle.imp().session;
+        let msg = format!("could not render: {:?}", *error);
+        rsvg_log!(session, "{}", msg);
+        rsvg_g_warning(&msg);
+        return ptr::null_mut();
+    }
+
+    pixbuf
+}
+
+#[no_mangle]
+#[cfg(feature = "pixbuf")]
+pub unsafe extern "C" fn rsvg_handle_get_pixbuf_and_error(
+    handle: *const RsvgHandle,
+    error: *mut *mut glib::ffi::GError,
+) -> *mut gdk_pixbuf::ffi::GdkPixbuf {
+    rsvg_return_val_if_fail! {
+        rsvg_handle_get_pixbuf_and_error => ptr::null_mut();
+
+        is_rsvg_handle(handle),
+        error.is_null() || (*error).is_null(),
+    }
+
     let rhandle = get_rust_handle(handle);
 
+    // into_gerror but returning the Ok value
     match rhandle.get_pixbuf_sub(None) {
         Ok(pixbuf) => pixbuf.to_glib_full(),
         Err(e) => {
             let session = &rhandle.imp().session;
-            let msg = format!("could not render: {}", e);
-            rsvg_log!(session, "{}", msg);
-            rsvg_g_warning(&msg);
+            set_gerror(session, error, 0, &format!("{e}"));
             ptr::null_mut()
         }
     }
 }
 
 #[no_mangle]
+#[cfg(feature = "pixbuf")]
 pub unsafe extern "C" fn rsvg_handle_get_pixbuf_sub(
     handle: *const RsvgHandle,
     id: *const libc::c_char,
@@ -1470,7 +1561,7 @@ pub unsafe extern "C" fn rsvg_handle_new_from_data(
         rsvg_handle_new_from_data => ptr::null();
 
         !data.is_null() || data_len == 0,
-        data_len <= std::isize::MAX as usize,
+        data_len <= isize::MAX as usize,
         error.is_null() || (*error).is_null(),
     }
 
@@ -1484,7 +1575,7 @@ pub unsafe extern "C" fn rsvg_handle_new_from_data(
     // - For now, we are using the other C-visible constructor, so we need a raw pointer to the
     //   stream, anyway.
 
-    assert!(data_len <= std::isize::MAX as usize);
+    assert!(data_len <= isize::MAX as usize);
     let data_len = data_len as isize;
 
     let raw_stream = gio::ffi::g_memory_input_stream_new_from_data(data as *mut u8, data_len, None);
@@ -1559,6 +1650,24 @@ pub unsafe extern "C" fn rsvg_handle_set_stylesheet(
     };
 
     rhandle.set_stylesheet(css).into_gerror(&session, error)
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn rsvg_handle_set_cancellable_for_rendering(
+    handle: *const RsvgHandle,
+    cancellable: *mut gio::ffi::GCancellable,
+) {
+    rsvg_return_if_fail! {
+        rsvg_handle_set_cancellable_for_rendering;
+
+        is_rsvg_handle(handle),
+        cancellable.is_null() || is_cancellable(cancellable),
+    }
+
+    let rhandle = get_rust_handle(handle);
+    let cancellable: Option<gio::Cancellable> = from_glib_none(cancellable);
+
+    rhandle.set_cancellable_for_rendering(cancellable.as_ref());
 }
 
 #[no_mangle]
@@ -1980,12 +2089,12 @@ mod tests {
     #[test]
     fn path_or_url_unix() {
         unsafe {
-            match PathOrUrl::new(rsvg_c_str!("/foo/bar")).unwrap() {
+            match PathOrUrl::new(c"/foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("unix filename should be a PathOrUrl::Path"),
             }
 
-            match PathOrUrl::new(rsvg_c_str!("foo/bar")).unwrap() {
+            match PathOrUrl::new(c"foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("unix filename should be a PathOrUrl::Path"),
             }
@@ -1995,22 +2104,22 @@ mod tests {
     #[test]
     fn path_or_url_windows() {
         unsafe {
-            match PathOrUrl::new(rsvg_c_str!("c:/foo/bar")).unwrap() {
+            match PathOrUrl::new(c"c:/foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("windows filename should be a PathOrUrl::Path"),
             }
 
-            match PathOrUrl::new(rsvg_c_str!("C:/foo/bar")).unwrap() {
+            match PathOrUrl::new(c"C:/foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("windows filename should be a PathOrUrl::Path"),
             }
 
-            match PathOrUrl::new(rsvg_c_str!("c:\\foo\\bar")).unwrap() {
+            match PathOrUrl::new(c"c:\\foo\\bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("windows filename should be a PathOrUrl::Path"),
             }
 
-            match PathOrUrl::new(rsvg_c_str!("C:\\foo\\bar")).unwrap() {
+            match PathOrUrl::new(c"C:\\foo\\bar".as_ptr()).unwrap() {
                 PathOrUrl::Path(_) => (),
                 _ => panic!("windows filename should be a PathOrUrl::Path"),
             }
@@ -2020,7 +2129,7 @@ mod tests {
     #[test]
     fn path_or_url_unix_url() {
         unsafe {
-            match PathOrUrl::new(rsvg_c_str!("file:///foo/bar")).unwrap() {
+            match PathOrUrl::new(c"file:///foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Url(_) => (),
                 _ => panic!("file:// unix filename should be a PathOrUrl::Url"),
             }
@@ -2030,12 +2139,12 @@ mod tests {
     #[test]
     fn path_or_url_windows_url() {
         unsafe {
-            match PathOrUrl::new(rsvg_c_str!("file://c:/foo/bar")).unwrap() {
+            match PathOrUrl::new(c"file://c:/foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Url(_) => (),
                 _ => panic!("file:// windows filename should be a PathOrUrl::Url"),
             }
 
-            match PathOrUrl::new(rsvg_c_str!("file://C:/foo/bar")).unwrap() {
+            match PathOrUrl::new(c"file://C:/foo/bar".as_ptr()).unwrap() {
                 PathOrUrl::Url(_) => (),
                 _ => panic!("file:// windows filename should be a PathOrUrl::Url"),
             }
@@ -2045,7 +2154,7 @@ mod tests {
     #[test]
     fn path_or_url_empty_str() {
         unsafe {
-            assert!(PathOrUrl::new(rsvg_c_str!("")).is_err());
+            assert!(PathOrUrl::new(c"".as_ptr()).is_err());
         }
 
         assert!(PathOrUrl::from_os_str(OsStr::new("")).is_err());
