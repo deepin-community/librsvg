@@ -105,6 +105,11 @@ impl TargetMatcher for target_lexicon::Triple {
             Abi, Arch, Endian, Env, Family, HasAtomic, Os, Panic, PointerWidth, Vendor,
         };
 
+        const NUTTX: target_lexicon::Vendor =
+            target_lexicon::Vendor::Custom(target_lexicon::CustomVendor::Static("nuttx"));
+        const RTEMS: target_lexicon::Vendor =
+            target_lexicon::Vendor::Custom(target_lexicon::CustomVendor::Static("rtems"));
+
         match tp {
             Abi(_) => {
                 // `target_abi` is unstable. Assume false for this.
@@ -170,13 +175,13 @@ impl TargetMatcher for target_lexicon::Triple {
                     OperatingSystem::VxWorks => env == &targ::Env::gnu,
                     OperatingSystem::Freebsd => match self.architecture {
                         Architecture::Arm(ArmArchitecture::Armv6 | ArmArchitecture::Armv7) => {
-                            env == &targ::Env::gnueabihf
+                            env == &targ::Env::gnu
                         }
                         _ => env.0.is_empty(),
                     },
                     OperatingSystem::Netbsd => match self.architecture {
                         Architecture::Arm(ArmArchitecture::Armv6 | ArmArchitecture::Armv7) => {
-                            env == &targ::Env::eabihf
+                            env.0.is_empty()
                         }
                         _ => env.0.is_empty(),
                     },
@@ -187,6 +192,9 @@ impl TargetMatcher for target_lexicon::Triple {
                         Environment::LinuxKernel => env == &targ::Env::gnu,
                         _ => env.0.is_empty(),
                     },
+                    OperatingSystem::WasiP1 => env == &targ::Env::p1,
+                    OperatingSystem::WasiP2 => env == &targ::Env::p2,
+                    OperatingSystem::Wasi => env.0.is_empty() || env == &targ::Env::p1,
                     _ => {
                         if env.0.is_empty() {
                             matches!(
@@ -198,6 +206,7 @@ impl TargetMatcher for target_lexicon::Triple {
                                     | Environment::Eabi
                                     | Environment::Eabihf
                                     | Environment::Sim
+                                    | Environment::None
                             )
                         } else {
                             match env.0.parse::<Environment>() {
@@ -224,7 +233,7 @@ impl TargetMatcher for target_lexicon::Triple {
                                             Environment::Kernel => {
                                                 self.operating_system == OperatingSystem::Linux
                                             }
-                                            _ => false,
+                                            _ => self.architecture == Architecture::Avr,
                                         }
                                     } else if env == &targ::Env::musl {
                                         matches!(
@@ -245,7 +254,7 @@ impl TargetMatcher for target_lexicon::Triple {
                                         matches!(
                                             self.operating_system,
                                             OperatingSystem::Horizon | OperatingSystem::Espidf
-                                        )
+                                        ) || self.vendor == RTEMS
                                     } else {
                                         self.environment == e
                                     }
@@ -259,10 +268,11 @@ impl TargetMatcher for target_lexicon::Triple {
             Family(fam) => {
                 use OperatingSystem::{
                     Aix, AmdHsa, Bitrig, Cloudabi, Cuda, Darwin, Dragonfly, Emscripten, Espidf,
-                    Freebsd, Fuchsia, Haiku, Hermit, Horizon, Illumos, Ios, L4re, Linux, MacOSX,
-                    Nebulet, Netbsd, None_, Openbsd, Redox, Solaris, Tvos, Uefi, Unknown, VxWorks,
-                    Wasi, Watchos, Windows,
+                    Freebsd, Fuchsia, Haiku, Hermit, Horizon, Hurd, Illumos, Ios, L4re, Linux,
+                    MacOSX, Nebulet, Netbsd, None_, Openbsd, Redox, Solaris, Tvos, Uefi, Unknown,
+                    Visionos, VxWorks, Wasi, WasiP1, WasiP2, Watchos, Windows,
                 };
+
                 match self.operating_system {
                     AmdHsa | Bitrig | Cloudabi | Cuda | Hermit | Nebulet | None_ | Uefi => false,
                     Aix
@@ -272,6 +282,7 @@ impl TargetMatcher for target_lexicon::Triple {
                     | Freebsd
                     | Fuchsia
                     | Haiku
+                    | Hurd
                     | Illumos
                     | Ios
                     | L4re
@@ -282,6 +293,7 @@ impl TargetMatcher for target_lexicon::Triple {
                     | Redox
                     | Solaris
                     | Tvos
+                    | Visionos
                     | VxWorks
                     | Watchos => fam == &crate::targets::Family::unix,
                     Emscripten => {
@@ -293,6 +305,9 @@ impl TargetMatcher for target_lexicon::Triple {
                             }
                             _ => false,
                         }
+                    }
+                    Unknown if self.vendor == NUTTX || self.vendor == RTEMS => {
+                        fam == &crate::targets::Family::unix
                     }
                     Unknown => {
                         // asmjs, wasm32 and wasm64 are part of the wasm family.
@@ -311,7 +326,7 @@ impl TargetMatcher for target_lexicon::Triple {
                             false
                         }
                     }
-                    Wasi => fam == &crate::targets::Family::wasm,
+                    Wasi | WasiP1 | WasiP2 => fam == &crate::targets::Family::wasm,
                     Windows => fam == &crate::targets::Family::windows,
                     // I really dislike non-exhaustive :(
                     _ => false,
@@ -322,35 +337,55 @@ impl TargetMatcher for target_lexicon::Triple {
                 // this.
                 false
             }
-            Os(os) => match os.0.parse::<OperatingSystem>() {
-                Ok(o) => match self.environment {
-                    Environment::HermitKernel => os == &targ::Os::hermit,
-                    _ => self.operating_system == o,
-                },
-                Err(_) => {
-                    // Handle special case for darwin/macos, where the triple is
-                    // "darwin", but rustc identifies the OS as "macos"
-                    if os == &targ::Os::macos && self.operating_system == OperatingSystem::Darwin {
-                        true
-                    } else {
-                        // For android, the os is still linux, but the environment is android
-                        os == &targ::Os::android
-                            && self.operating_system == OperatingSystem::Linux
-                            && (self.environment == Environment::Android
-                                || self.environment == Environment::Androideabi)
+            Os(os) => {
+                if os == &targ::Os::wasi
+                    && matches!(
+                        self.operating_system,
+                        OperatingSystem::WasiP1 | OperatingSystem::WasiP2
+                    )
+                    || (os == &targ::Os::nuttx && self.vendor == NUTTX)
+                    || (os == &targ::Os::rtems && self.vendor == RTEMS)
+                {
+                    return true;
+                }
+
+                match os.0.parse::<OperatingSystem>() {
+                    Ok(o) => match self.environment {
+                        Environment::HermitKernel => os == &targ::Os::hermit,
+                        _ => self.operating_system == o,
+                    },
+                    Err(_) => {
+                        // Handle special case for darwin/macos, where the triple is
+                        // "darwin", but rustc identifies the OS as "macos"
+                        if os == &targ::Os::macos
+                            && self.operating_system == OperatingSystem::Darwin
+                        {
+                            true
+                        } else {
+                            // For android, the os is still linux, but the environment is android
+                            os == &targ::Os::android
+                                && self.operating_system == OperatingSystem::Linux
+                                && (self.environment == Environment::Android
+                                    || self.environment == Environment::Androideabi)
+                        }
                     }
                 }
-            },
+            }
             Panic(_) => {
                 // panic support depends on the OS. Assume false for this.
                 false
             }
             Vendor(ven) => match ven.0.parse::<target_lexicon::Vendor>() {
                 Ok(v) => {
-                    if self.vendor == v {
+                    if self.vendor == v
+                        || ((self.vendor == NUTTX || self.vendor == RTEMS)
+                            && ven == &targ::Vendor::unknown)
+                    {
                         true
                     } else if let target_lexicon::Vendor::Custom(custom) = &self.vendor {
-                        custom.as_str() == "esp" && v == target_lexicon::Vendor::Espressif
+                        matches!(custom.as_str(), "esp" | "esp32" | "esp32s2" | "esp32s3")
+                            && (v == target_lexicon::Vendor::Espressif
+                                || v == target_lexicon::Vendor::Unknown)
                     } else {
                         false
                     }
@@ -435,7 +470,7 @@ pub enum Predicate<'a> {
     /// when compiling without optimizations.
     DebugAssertions,
     /// [Enabled](https://doc.rust-lang.org/reference/conditional-compilation.html#proc_macro) for
-    /// crates of the proc_macro type.
+    /// crates of the `proc_macro` type.
     ProcMacro,
     /// A [`feature = "<name>"`](https://doc.rust-lang.org/nightly/cargo/reference/features.html)
     Feature(&'a str),
@@ -540,7 +575,7 @@ impl Expression {
 
     /// Evaluates the expression, using the provided closure to determine the value of
     /// each predicate, which are then combined into a final result depending on the
-    /// functions not(), all(), or any() in the expression.
+    /// functions `not()`, `all()`, or `any()` in the expression.
     ///
     /// `eval_predicate` typically returns `bool`, but may return any type that implements
     /// the `Logic` trait.
@@ -597,7 +632,7 @@ impl Expression {
     {
         let mut result_stack = SmallVec::<[T; 8]>::new();
 
-        // We store the expression as postfix, so just evaluate each license
+        // We store the expression as postfix, so just evaluate each component
         // requirement in the order it comes, and then combining the previous
         // results according to each operator as it comes
         for node in self.expr.iter() {

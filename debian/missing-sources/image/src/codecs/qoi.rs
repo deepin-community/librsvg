@@ -1,10 +1,10 @@
 //! Decoding and encoding of QOI images
 
+use crate::error::{DecodingError, EncodingError};
 use crate::{
-    error::{DecodingError, EncodingError},
-    ColorType, ImageDecoder, ImageEncoder, ImageError, ImageFormat, ImageResult,
+    ColorType, ExtendedColorType, ImageDecoder, ImageEncoder, ImageError, ImageFormat, ImageResult,
 };
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 
 /// QOI decoder
 pub struct QoiDecoder<R> {
@@ -22,9 +22,7 @@ where
     }
 }
 
-impl<'a, R: Read + 'a> ImageDecoder<'a> for QoiDecoder<R> {
-    type Reader = Cursor<Vec<u8>>;
-
+impl<R: Read> ImageDecoder for QoiDecoder<R> {
     fn dimensions(&self) -> (u32, u32) {
         (self.decoder.header().width, self.decoder.header().height)
     }
@@ -36,9 +34,13 @@ impl<'a, R: Read + 'a> ImageDecoder<'a> for QoiDecoder<R> {
         }
     }
 
-    fn into_reader(mut self) -> ImageResult<Self::Reader> {
-        let buffer = self.decoder.decode_to_vec().map_err(decoding_error)?;
-        Ok(Cursor::new(buffer))
+    fn read_image(mut self, buf: &mut [u8]) -> ImageResult<()> {
+        self.decoder.decode_to_buf(buf).map_err(decoding_error)?;
+        Ok(())
+    }
+
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        (*self).read_image(buf)
     }
 }
 
@@ -63,23 +65,30 @@ impl<W: Write> QoiEncoder<W> {
 }
 
 impl<W: Write> ImageEncoder for QoiEncoder<W> {
+    #[track_caller]
     fn write_image(
         mut self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
-        if !matches!(color_type, ColorType::Rgba8 | ColorType::Rgb8) {
+        if !matches!(
+            color_type,
+            ExtendedColorType::Rgba8 | ExtendedColorType::Rgb8
+        ) {
             return Err(ImageError::Encoding(EncodingError::new(
                 ImageFormat::Qoi.into(),
                 format!("unsupported color type {color_type:?}. Supported are Rgba8 and Rgb8."),
             )));
         }
 
+        let expected_buffer_len = color_type.buffer_size(width, height);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(color_type.bytes_per_pixel() as u64),
-            buf.len() as u64
+            expected_buffer_len,
+            buf.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            buf.len(),
         );
 
         // Encode data in QOI

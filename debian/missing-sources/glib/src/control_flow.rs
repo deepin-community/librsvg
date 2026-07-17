@@ -1,6 +1,6 @@
 // Take a look at the license at the top of the repository in the LICENSE file.
 
-use crate::{prelude::*, translate::*};
+use crate::{ffi, prelude::*, translate::*};
 
 // rustdoc-stripper-ignore-next
 /// Continue calling the closure in the future iterations or drop it.
@@ -10,9 +10,14 @@ use crate::{prelude::*, translate::*};
 /// `ControlFlow::Continue` keeps the closure assigned, to be rerun when appropriate.
 ///
 /// `ControlFlow::Break` disconnects and drops it.
+///
+/// `Continue` and `Break` map to `G_SOURCE_CONTINUE` (`true`) and
+/// `G_SOURCE_REMOVE` (`false`), respectively.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ControlFlow {
+    #[doc(alias = "G_SOURCE_CONTINUE")]
     Continue,
+    #[doc(alias = "G_SOURCE_REMOVE")]
     Break,
 }
 

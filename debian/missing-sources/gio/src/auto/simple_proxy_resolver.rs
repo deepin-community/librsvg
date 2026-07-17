@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::ProxyResolver;
+use crate::{ffi, ProxyResolver};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -30,6 +30,7 @@ mod sealed {
 
 pub trait SimpleProxyResolverExt: IsA<SimpleProxyResolver> + sealed::Sealed + 'static {
     #[doc(alias = "g_simple_proxy_resolver_set_default_proxy")]
+    #[doc(alias = "default-proxy")]
     fn set_default_proxy(&self, default_proxy: Option<&str>) {
         unsafe {
             ffi::g_simple_proxy_resolver_set_default_proxy(
@@ -78,7 +79,7 @@ pub trait SimpleProxyResolverExt: IsA<SimpleProxyResolver> + sealed::Sealed + 's
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::default-proxy\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_default_proxy_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -104,7 +105,7 @@ pub trait SimpleProxyResolverExt: IsA<SimpleProxyResolver> + sealed::Sealed + 's
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::ignore-hosts\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_ignore_hosts_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

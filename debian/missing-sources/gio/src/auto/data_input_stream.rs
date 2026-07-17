@@ -3,7 +3,7 @@
 // DO NOT EDIT
 
 use crate::{
-    AsyncResult, BufferedInputStream, Cancellable, DataStreamByteOrder, DataStreamNewlineType,
+    ffi, AsyncResult, BufferedInputStream, Cancellable, DataStreamByteOrder, DataStreamNewlineType,
     FilterInputStream, InputStream, Seekable,
 };
 use glib::{
@@ -115,6 +115,7 @@ mod sealed {
 pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
     #[doc(alias = "g_data_input_stream_get_byte_order")]
     #[doc(alias = "get_byte_order")]
+    #[doc(alias = "byte-order")]
     fn byte_order(&self) -> DataStreamByteOrder {
         unsafe {
             from_glib(ffi::g_data_input_stream_get_byte_order(
@@ -125,6 +126,7 @@ pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
 
     #[doc(alias = "g_data_input_stream_get_newline_type")]
     #[doc(alias = "get_newline_type")]
+    #[doc(alias = "newline-type")]
     fn newline_type(&self) -> DataStreamNewlineType {
         unsafe {
             from_glib(ffi::g_data_input_stream_get_newline_type(
@@ -253,6 +255,7 @@ pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
     }
 
     #[doc(alias = "g_data_input_stream_set_byte_order")]
+    #[doc(alias = "byte-order")]
     fn set_byte_order(&self, order: DataStreamByteOrder) {
         unsafe {
             ffi::g_data_input_stream_set_byte_order(
@@ -263,6 +266,7 @@ pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
     }
 
     #[doc(alias = "g_data_input_stream_set_newline_type")]
+    #[doc(alias = "newline-type")]
     fn set_newline_type(&self, type_: DataStreamNewlineType) {
         unsafe {
             ffi::g_data_input_stream_set_newline_type(
@@ -290,7 +294,7 @@ pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::byte-order\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_byte_order_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -316,7 +320,7 @@ pub trait DataInputStreamExt: IsA<DataInputStream> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::newline-type\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_newline_type_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

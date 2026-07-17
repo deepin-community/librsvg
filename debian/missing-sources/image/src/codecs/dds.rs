@@ -8,10 +8,10 @@
 use std::io::Read;
 use std::{error, fmt};
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder_lite::{LittleEndian, ReadBytesExt};
 
 #[allow(deprecated)]
-use crate::codecs::dxt::{DxtDecoder, DxtReader, DxtVariant};
+use crate::codecs::dxt::{DxtDecoder, DxtVariant};
 use crate::color::ColorType;
 use crate::error::{
     DecodingError, ImageError, ImageFormatHint, ImageResult, UnsupportedError, UnsupportedErrorKind,
@@ -20,6 +20,7 @@ use crate::image::{ImageDecoder, ImageFormat};
 
 /// Errors that can occur during decoding and parsing a DDS image
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(clippy::enum_variant_names)]
 enum DecoderError {
     /// Wrong DDS channel width
     PixelFormatSizeInvalid(u32),
@@ -45,25 +46,25 @@ impl fmt::Display for DecoderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             DecoderError::PixelFormatSizeInvalid(s) => {
-                f.write_fmt(format_args!("Invalid DDS PixelFormat size: {}", s))
+                f.write_fmt(format_args!("Invalid DDS PixelFormat size: {s}"))
             }
             DecoderError::HeaderSizeInvalid(s) => {
-                f.write_fmt(format_args!("Invalid DDS header size: {}", s))
+                f.write_fmt(format_args!("Invalid DDS header size: {s}"))
             }
             DecoderError::HeaderFlagsInvalid(fs) => {
-                f.write_fmt(format_args!("Invalid DDS header flags: {:#010X}", fs))
+                f.write_fmt(format_args!("Invalid DDS header flags: {fs:#010X}"))
             }
             DecoderError::DxgiFormatInvalid(df) => {
-                f.write_fmt(format_args!("Invalid DDS DXGI format: {}", df))
+                f.write_fmt(format_args!("Invalid DDS DXGI format: {df}"))
             }
             DecoderError::ResourceDimensionInvalid(d) => {
-                f.write_fmt(format_args!("Invalid DDS resource dimension: {}", d))
+                f.write_fmt(format_args!("Invalid DDS resource dimension: {d}"))
             }
             DecoderError::Dx10FlagsInvalid(fs) => {
-                f.write_fmt(format_args!("Invalid DDS DX10 header flags: {:#010X}", fs))
+                f.write_fmt(format_args!("Invalid DDS DX10 header flags: {fs:#010X}"))
             }
             DecoderError::Dx10ArraySizeInvalid(s) => {
-                f.write_fmt(format_args!("Invalid DDS DX10 array size: {}", s))
+                f.write_fmt(format_args!("Invalid DDS DX10 array size: {s}"))
             }
             DecoderError::DdsSignatureInvalid => f.write_str("DDS signature not found"),
         }
@@ -145,7 +146,7 @@ impl Header {
         }
 
         const REQUIRED_FLAGS: u32 = 0x1 | 0x2 | 0x4 | 0x1000;
-        const VALID_FLAGS: u32 = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x20000 | 0x80000 | 0x800000;
+        const VALID_FLAGS: u32 = 0x1 | 0x2 | 0x4 | 0x8 | 0x1000 | 0x20000 | 0x80000 | 0x0080_0000;
         let flags = r.read_u32::<LittleEndian>()?;
         if flags & (REQUIRED_FLAGS | !VALID_FLAGS) != REQUIRED_FLAGS {
             return Err(DecoderError::HeaderFlagsInvalid(flags).into());
@@ -287,10 +288,7 @@ impl<R: Read> DdsDecoder<R> {
                     return Err(ImageError::Unsupported(
                         UnsupportedError::from_format_and_kind(
                             ImageFormat::Dds.into(),
-                            UnsupportedErrorKind::GenericFeature(format!(
-                                "DDS FourCC {:?}",
-                                fourcc
-                            )),
+                            UnsupportedErrorKind::GenericFeature(format!("DDS FourCC {fourcc:?}")),
                         ),
                     ))
                 }
@@ -327,10 +325,7 @@ impl<R: Read> DdsDecoder<R> {
     }
 }
 
-impl<'a, R: 'a + Read> ImageDecoder<'a> for DdsDecoder<R> {
-    #[allow(deprecated)]
-    type Reader = DxtReader<R>;
-
+impl<R: Read> ImageDecoder for DdsDecoder<R> {
     fn dimensions(&self) -> (u32, u32) {
         self.inner.dimensions()
     }
@@ -339,18 +334,12 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for DdsDecoder<R> {
         self.inner.color_type()
     }
 
-    fn scanline_bytes(&self) -> u64 {
-        #[allow(deprecated)]
-        self.inner.scanline_bytes()
-    }
-
-    fn into_reader(self) -> ImageResult<Self::Reader> {
-        #[allow(deprecated)]
-        self.inner.into_reader()
-    }
-
     fn read_image(self, buf: &mut [u8]) -> ImageResult<()> {
         self.inner.read_image(buf)
+    }
+
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        (*self).read_image(buf)
     }
 }
 

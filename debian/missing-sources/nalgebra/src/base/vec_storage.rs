@@ -31,6 +31,46 @@ pub struct VecStorage<T, R: Dim, C: Dim> {
     ncols: C,
 }
 
+impl<T> Default for VecStorage<T, Dyn, Dyn> {
+    fn default() -> Self {
+        Self {
+            data: Vec::new(),
+            nrows: Dyn::from_usize(0),
+            ncols: Dyn::from_usize(0),
+        }
+    }
+}
+
+impl<T, R: DimName> Default for VecStorage<T, R, Dyn> {
+    fn default() -> Self {
+        Self {
+            data: Vec::new(),
+            nrows: R::name(),
+            ncols: Dyn::from_usize(0),
+        }
+    }
+}
+
+impl<T, C: DimName> Default for VecStorage<T, Dyn, C> {
+    fn default() -> Self {
+        Self {
+            data: Vec::new(),
+            nrows: Dyn::from_usize(0),
+            ncols: C::name(),
+        }
+    }
+}
+
+impl<T: Default, R: DimName, C: DimName> Default for VecStorage<T, R, C> {
+    fn default() -> Self {
+        let nrows = R::name();
+        let ncols = C::name();
+        let mut data = Vec::new();
+        data.resize_with(nrows.value() * ncols.value(), Default::default);
+        Self { data, nrows, ncols }
+    }
+}
+
 #[cfg(feature = "serde-serialize")]
 impl<T, R: Dim, C: Dim> Serialize for VecStorage<T, R, C>
 where
@@ -224,12 +264,12 @@ unsafe impl<T, C: Dim> RawStorage<T, Dyn, C> for VecStorage<T, Dyn, C> {
 
 unsafe impl<T: Scalar, C: Dim> Storage<T, Dyn, C> for VecStorage<T, Dyn, C>
 where
-    DefaultAllocator: Allocator<T, Dyn, C, Buffer = Self>,
+    DefaultAllocator: Allocator<Dyn, C, Buffer<T> = Self>,
 {
     #[inline]
     fn into_owned(self) -> Owned<T, Dyn, C>
     where
-        DefaultAllocator: Allocator<T, Dyn, C>,
+        DefaultAllocator: Allocator<Dyn, C>,
     {
         self
     }
@@ -237,9 +277,20 @@ where
     #[inline]
     fn clone_owned(&self) -> Owned<T, Dyn, C>
     where
-        DefaultAllocator: Allocator<T, Dyn, C>,
+        DefaultAllocator: Allocator<Dyn, C>,
     {
         self.clone()
+    }
+
+    #[inline]
+    fn forget_elements(mut self) {
+        // SAFETY: setting the length to zero is always sound, as it does not
+        // cause any memory to be deemed initialized. If the previous length was
+        // non-zero, it is equivalent to using mem::forget to leak each element.
+        // Then, when this function returns, self.data is dropped, freeing the
+        // allocated memory, but the elements are not dropped because they are
+        // now considered uninitialized.
+        unsafe { self.data.set_len(0) };
     }
 }
 
@@ -275,12 +326,12 @@ unsafe impl<T, R: DimName> RawStorage<T, R, Dyn> for VecStorage<T, R, Dyn> {
 
 unsafe impl<T: Scalar, R: DimName> Storage<T, R, Dyn> for VecStorage<T, R, Dyn>
 where
-    DefaultAllocator: Allocator<T, R, Dyn, Buffer = Self>,
+    DefaultAllocator: Allocator<R, Dyn, Buffer<T> = Self>,
 {
     #[inline]
     fn into_owned(self) -> Owned<T, R, Dyn>
     where
-        DefaultAllocator: Allocator<T, R, Dyn>,
+        DefaultAllocator: Allocator<R, Dyn>,
     {
         self
     }
@@ -288,9 +339,20 @@ where
     #[inline]
     fn clone_owned(&self) -> Owned<T, R, Dyn>
     where
-        DefaultAllocator: Allocator<T, R, Dyn>,
+        DefaultAllocator: Allocator<R, Dyn>,
     {
         self.clone()
+    }
+
+    #[inline]
+    fn forget_elements(mut self) {
+        // SAFETY: setting the length to zero is always sound, as it does not
+        // cause any memory to be deemed initialized. If the previous length was
+        // non-zero, it is equivalent to using mem::forget to leak each element.
+        // Then, when this function returns, self.data is dropped, freeing the
+        // allocated memory, but the elements are not dropped because they are
+        // now considered uninitialized.
+        unsafe { self.data.set_len(0) };
     }
 }
 

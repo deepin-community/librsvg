@@ -1,5 +1,75 @@
 # `bytemuck` changelog
 
+## 1.20
+
+* New functions to allocate zeroed `Arc` and `Rc`. Requires Rust 1.82
+* `TransparentWrapper` impls for `core::cmp::Reverse` and `core::num::Saturating`.
+* internal: Simplified the library's `fill_zeroes` calls to `write_bytes`
+
+## 1.19
+
+* Adds the `#[track_caller]` attribute to functions which may panic.
+
+## 1.18
+
+* Adds the `latest_stable_rust` cargo feature, which is a blanket feature that turns all other features on that are both sound and compatible with Stable rust.
+
+## 1.17.1
+
+* Adds `#[repr(C)]` to the `union Transmute<A, B>` type that's used internally
+  for most of the transmutations.
+
+## 1.17.0
+
+* Makes the `must_cast` versions of the by-value and by-ref casts be `const`.
+  The mut ref cast is unaffected for now (mut references aren't yet stable in `const fn`).
+  This increases the MSRV of using that particular feature from 1.57 to 1.64.
+
+## 1.16.3
+
+* Fully described in https://github.com/Lokathor/bytemuck/pull/256, This makes
+  casting slices to/from ZST elements more consistent between the crate's core
+  module and other modules.
+
+## 1.16.2
+
+* Fixes potential UB where `BoxBytes` could attempt to free a dangling pointer
+  if the `Layout` is zero sized. This type was introduced in 1.14.1, so that
+  version and the others up to and including 1.16.1 are now yanked for safety.
+
+## 1.16.1
+
+* **NOT SEMVER SUPPORTED:** Adds the  `nightly_float` Cargo feature. This
+  activates the `f16` and `f128` nightly features, and then provides `Zeroable`
+  and `Pod` impls for those types.
+
+## 1.16.0
+
+* Adds a `const_zeroed` feature (MSRV 1.75) which puts a `zeroed` fn at the crate root.
+  This is just like the `Zeroable::zeroed` method, but as a `const fn`.
+
+## 1.15.0
+
+This primarily relaxes the bounds on a `From` impl.
+
+Previously:
+
+> `impl<T: NoUninit> From<Box<T>> for BoxBytes`
+
+Now:
+
+> `impl<T: ?Sized + sealed::BoxBytesOf> From<Box<T>> for BoxBytes`
+
+All related functions and methods are similarly updated.
+
+We believe this to be backwards compatible with all previous uses,
+and now `BoxBytes` can be converted to/from more types than before.
+
+## 1.14.3
+
+* The new std simd nightly features are apparently arch-specific.
+  This adjusts the feature activation to be x86/ x86_64 only.
+
 ## 1.14.2
 
 * Changes the name of the Nightly feature activated by the crate's

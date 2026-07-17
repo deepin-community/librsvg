@@ -20,9 +20,9 @@
 //!
 //! ```toml
 //! [dependencies]
-//! librsvg = "2.58.0"
-//! cairo-rs = "0.19"
-//! gio = "0.19"   # only if you need streams
+//! librsvg = "2.60.0"
+//! cairo-rs = "0.20"
+//! gio = "0.20"   # only if you need streams
 //! ```
 //!
 //! # Example
@@ -95,36 +95,36 @@
 //! one of these rules fails:
 //!
 //! 1. All `data:` URLs may be loaded.  These are sometimes used to
-//! include raster image data, encoded as base-64, directly in an SVG
-//! file.
+//!    include raster image data, encoded as base-64, directly in an SVG
+//!    file.
 //!
 //! 2. URLs with queries ("?") or fragment identifiers ("#") are not allowed.
 //!
 //! 3. All URL schemes other than data: in references require a base URL.  For
-//! example, this means that if you load an SVG with [`Loader::read_stream`]
-//! without providing a `base_file`, then any referenced files will not
-//! be allowed (e.g. raster images to be loaded from other files will
-//! not work).
+//!    example, this means that if you load an SVG with [`Loader::read_stream`]
+//!    without providing a `base_file`, then any referenced files will not
+//!    be allowed (e.g. raster images to be loaded from other files will
+//!    not work).
 //!
 //! 4. If referenced URLs are absolute, rather than relative, then
-//! they must have the same scheme as the base URL.  For example, if
-//! the base URL has a "`file`" scheme, then all URL references inside
-//! the SVG must also have the "`file`" scheme, or be relative
-//! references which will be resolved against the base URL.
+//!    they must have the same scheme as the base URL.  For example, if
+//!    the base URL has a "`file`" scheme, then all URL references inside
+//!    the SVG must also have the "`file`" scheme, or be relative
+//!    references which will be resolved against the base URL.
 //!
 //! 5. If referenced URLs have a "`resource`" scheme, that is, if they
-//! are included into your binary program with GLib's resource
-//! mechanism, they are allowed to be loaded (provided that the base
-//! URL is also a "`resource`", per the previous rule).
+//!    are included into your binary program with GLib's resource
+//!    mechanism, they are allowed to be loaded (provided that the base
+//!    URL is also a "`resource`", per the previous rule).
 //!
 //! 6. Otherwise, non-`file` schemes are not allowed.  For example,
-//! librsvg will not load `http` resources, to keep malicious SVG data
-//! from "phoning home".
+//!    librsvg will not load `http` resources, to keep malicious SVG data
+//!    from "phoning home".
 //!
 //! 7. A relative URL must resolve to the same directory as the base
-//! URL, or to one of its subdirectories.  Librsvg will canonicalize
-//! filenames, by removing "`..`" path components and resolving symbolic
-//! links, to decide whether files meet these conditions.
+//!    URL, or to one of its subdirectories.  Librsvg will canonicalize
+//!    filenames, by removing "`..`" path components and resolving symbolic
+//!    links, to decide whether files meet these conditions.
 //!
 //! [static mode]: https://www.w3.org/TR/SVG2/conform.html#static-mode
 //! [secure static mode]: https://www.w3.org/TR/SVG2/conform.html#secure-static-mode
@@ -150,6 +150,7 @@ mod angle;
 mod api;
 mod aspect_ratio;
 mod bbox;
+mod cairo_path;
 mod color;
 mod cond;
 mod coord_units;
@@ -192,6 +193,7 @@ mod structure;
 mod style;
 mod surface_utils;
 mod text;
+mod text2;
 mod transform;
 mod unit_interval;
 mod url_resolver;
@@ -221,7 +223,7 @@ pub mod bench_only {
 }
 
 #[doc(hidden)]
-#[cfg(feature = "c-api")]
+#[cfg(feature = "capi")]
 pub mod c_api_only {
     pub use crate::dpi::Dpi;
     pub use crate::rsvg_log;

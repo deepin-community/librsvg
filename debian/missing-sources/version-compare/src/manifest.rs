@@ -23,7 +23,8 @@
 /// assert!(a == b);
 /// ```
 
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[non_exhaustive]
 pub struct Manifest {
     /// The maximum depth of a version number.
     ///
@@ -32,6 +33,13 @@ pub struct Manifest {
 
     /// Whether to ignore text parts in version strings.
     pub ignore_text: bool,
+
+    /// Use GNU sort based ordering.
+    ///
+    /// Enabling this modifies the ordering of numbers with a leading zero to mimick GNUs sort.
+    ///
+    /// Issue: https://github.com/timvisee/version-compare/issues/27
+    pub gnu_ordering: bool,
 }
 
 /// Version manifest implementation.
@@ -61,6 +69,7 @@ mod tests {
     use super::Manifest;
 
     #[test]
+    #[allow(clippy::field_reassign_with_default)]
     fn has_max_depth() {
         let mut manifest = Manifest::default();
 

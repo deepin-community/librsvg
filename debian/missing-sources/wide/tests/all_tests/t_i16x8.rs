@@ -213,12 +213,22 @@ fn impl_i16x8_abs() {
 }
 
 #[test]
+fn impl_i16x8_unsigned_abs() {
+  let a = i16x8::from([1, -2, 3, -4, 5, -6, -7, i16::MIN]);
+  let expected = u16x8::from([1, 2, 3, 4, 5, 6, 7, i16::MIN as u16]);
+  let actual = a.unsigned_abs();
+  assert_eq!(expected, actual);
+}
+
+#[test]
 fn impl_i16x8_max() {
   let a = i16x8::from([1, 2, 3, 4, 5, 6, i16::MIN + 1, i16::MIN]);
   let b = i16x8::from([17, -18, 190, -20, 21, -22, 1, 1]);
   let expected = i16x8::from([17, 2, 190, 4, 21, 6, 1, 1]);
   let actual = a.max(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i16x8, b| a.max(b), |a, b| a.max(b));
 }
 
 #[test]
@@ -228,6 +238,8 @@ fn impl_i16x8_min() {
   let expected = i16x8::from([1, -18, 3, -20, 5, -22, i16::MIN + 1, i16::MIN]);
   let actual = a.min(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i16x8, b| a.min(b), |a, b| a.min(b));
 }
 
 #[test]
@@ -236,6 +248,15 @@ fn test_from_u8x16_low() {
     u8x16::from([1, 2, 3, 4, 5, 6, 7, u8::MAX, 9, 10, 11, 12, 13, 14, 15, 16]);
   let expected = i16x8::from([1, 2, 3, 4, 5, 6, 7, u8::MAX as i16]);
   let actual = i16x8::from_u8x16_low(bytes);
+  assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_from_u8x16_high() {
+  let a =
+    u8x16::from([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 255, 128]);
+  let expected = i16x8::from([9, 10, 11, 12, 13, 14, 255, 128]);
+  let actual = i16x8::from_u8x16_high(a);
   assert_eq!(expected, actual);
 }
 
@@ -344,4 +365,52 @@ fn impl_i16x8_reduce_max() {
     let p = i16x8::from(v);
     assert_eq!(p.reduce_min(), i16::MIN);
   }
+}
+
+#[test]
+fn impl_mul_keep_high() {
+  let a = i16x8::from([i16::MAX, 200, 300, 4568, -1, -2, -3, -4]);
+  let b = i16x8::from([i16::MIN, 600, 700, 8910, -15, -26, -37, 48]);
+  let c: [i16; 8] = i16x8::mul_keep_high(a, b).into();
+  assert_eq!(
+    c,
+    [
+      (i32::from(i16::MAX) * i32::from(i16::MIN) >> 16) as i16,
+      1,
+      3,
+      621,
+      0,
+      0,
+      0,
+      -1
+    ]
+  );
+
+  crate::test_random_vector_vs_scalar(
+    |a: i16x8, b| i16x8::mul_keep_high(a, b),
+    |a, b| ((i32::from(a) * i32::from(b)) >> 16) as i16,
+  );
+}
+
+#[test]
+fn impl_i16x8_mul_widen() {
+  let a = i16x8::from([1, 2, 3, 4, 5, 6, i16::MIN, i16::MAX]);
+  let b = i16x8::from([17, -18, 190, -20, 21, -22, i16::MAX, i16::MAX]);
+  let expected = i32x8::from([
+    17,
+    -36,
+    570,
+    -80,
+    105,
+    -132,
+    (i16::MIN as i32) * (i16::MAX as i32),
+    (i16::MAX as i32) * (i16::MAX as i32),
+  ]);
+  let actual = a.mul_widen(b);
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i16x8, b| a.mul_widen(b),
+    |a, b| i32::from(a) * i32::from(b),
+  );
 }

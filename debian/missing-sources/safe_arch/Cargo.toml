@@ -12,8 +12,13 @@
 [package]
 edition = "2018"
 name = "safe_arch"
-version = "0.7.1"
+version = "0.7.2"
 authors = ["Lokathor <zefria@gmail.com>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Crate that exposes `core::arch` safely via `#[cfg()]`."
 readme = "README.md"
 keywords = [
@@ -39,6 +44,14 @@ rustdoc-args = [
 
 [profile.test]
 opt-level = 3
+
+[lib]
+name = "safe_arch"
+path = "src/lib.rs"
+
+[[test]]
+name = "integration"
+path = "tests/integration/main.rs"
 
 [dependencies.bytemuck]
 version = "1.2"

@@ -1,4 +1,4 @@
-// We *mostly* avoid unsafe code, but `map::core::raw` allows it to use `RawTable` buckets.
+// We *mostly* avoid unsafe code, but `Slice` allows it for DST casting.
 #![deny(unsafe_code)]
 #![warn(rust_2018_idioms)]
 #![no_std]
@@ -19,7 +19,7 @@
 //! - The [`Equivalent`] trait, which offers more flexible equality definitions
 //!   between borrowed and owned versions of keys.
 //! - The [`MutableKeys`][map::MutableKeys] trait, which gives opt-in mutable
-//!   access to hash map keys.
+//!   access to map keys, and [`MutableValues`][set::MutableValues] for sets.
 //!
 //! ### Feature Flags
 //!
@@ -35,6 +35,8 @@
 //!   to [`IndexMap`] and [`IndexSet`]. Alternative implementations for
 //!   (de)serializing [`IndexMap`] as an ordered sequence are available in the
 //!   [`map::serde_seq`] module.
+//! * `borsh`: Adds implementations for [`BorshSerialize`] and [`BorshDeserialize`]
+//!   to [`IndexMap`] and [`IndexSet`].
 //! * `arbitrary`: Adds implementations for the [`arbitrary::Arbitrary`] trait
 //!   to [`IndexMap`] and [`IndexSet`].
 //! * `quickcheck`: Adds implementations for the [`quickcheck::Arbitrary`] trait
@@ -46,6 +48,8 @@
 //! [`no_std`]: #no-standard-library-targets
 //! [`Serialize`]: `::serde::Serialize`
 //! [`Deserialize`]: `::serde::Deserialize`
+//! [`BorshSerialize`]: `::borsh::BorshSerialize`
+//! [`BorshDeserialize`]: `::borsh::BorshDeserialize`
 //! [`arbitrary::Arbitrary`]: `::arbitrary::Arbitrary`
 //! [`quickcheck::Arbitrary`]: `::quickcheck::Arbitrary`
 //!
@@ -90,7 +94,7 @@
 //! `default-features = false` to your dependency specification.
 //!
 //! - Creating maps and sets using [`new`][IndexMap::new] and
-//! [`with_capacity`][IndexMap::with_capacity] is unavailable without `std`.
+//!   [`with_capacity`][IndexMap::with_capacity] is unavailable without `std`.
 //!   Use methods [`IndexMap::default`], [`with_hasher`][IndexMap::with_hasher],
 //!   [`with_capacity_and_hasher`][IndexMap::with_capacity_and_hasher] instead.
 //!   A no-std compatible hasher will be needed as well, for example
@@ -110,7 +114,8 @@ use alloc::vec::{self, Vec};
 mod arbitrary;
 #[macro_use]
 mod macros;
-mod mutable_keys;
+#[cfg(feature = "borsh")]
+mod borsh;
 #[cfg(feature = "serde")]
 mod serde;
 mod util;

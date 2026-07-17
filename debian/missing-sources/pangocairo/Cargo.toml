@@ -13,9 +13,14 @@
 edition = "2021"
 rust-version = "1.70"
 name = "pangocairo"
-version = "0.19.1"
+version = "0.20.4"
 authors = ["The gtk-rs Project Developers"]
+build = false
 exclude = ["gir-files/*"]
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "Rust bindings for the PangoCairo library"
 homepage = "https://gtk-rs.org/"
 documentation = "https://gtk-rs.org/gtk-rs-core/stable/latest/docs/pangocairo/"
@@ -29,21 +34,44 @@ keywords = [
 license = "MIT"
 repository = "https://github.com/gtk-rs/gtk-rs-core"
 
-[dependencies.cairo-rs]
-version = "0.19"
+[package.metadata.docs.rs]
+all-features = true
+rustc-args = [
+    "--cfg",
+    "docsrs",
+]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+    "--generate-link-to-definition",
+]
 
-[dependencies.ffi]
-version = "0.19"
-package = "pangocairo-sys"
+[lib]
+name = "pangocairo"
+path = "src/lib.rs"
+
+[[test]]
+name = "check_gir"
+path = "tests/check_gir.rs"
+
+[[test]]
+name = "iterators"
+path = "tests/iterators.rs"
+
+[dependencies.cairo-rs]
+version = "0.20"
 
 [dependencies.glib]
-version = "0.19"
+version = "0.20"
 
 [dependencies.libc]
 version = "0.2"
 
 [dependencies.pango]
-version = "0.19"
+version = "0.20"
+
+[dependencies.pangocairo-sys]
+version = "0.20"
 
 [dev-dependencies.gir-format-check]
 version = "^0.1"

@@ -4,13 +4,13 @@ pick! {
   if #[cfg(target_feature="sse")] {
     #[derive(Default, Clone, Copy, PartialEq)]
     #[repr(C, align(16))]
-    pub struct f32x4 { sse: m128 }
+    pub struct f32x4 { pub(crate) sse: m128 }
   } else if #[cfg(target_feature="simd128")] {
     use core::arch::wasm32::*;
 
     #[derive(Clone, Copy)]
     #[repr(transparent)]
-    pub struct f32x4 { simd: v128 }
+    pub struct f32x4 { pub(crate) simd: v128 }
 
     impl Default for f32x4 {
       fn default() -> Self {
@@ -27,7 +27,7 @@ pick! {
     use core::arch::aarch64::*;
     #[repr(C)]
     #[derive(Copy, Clone)]
-    pub struct f32x4 { neon : float32x4_t }
+    pub struct f32x4 { pub(crate) neon : float32x4_t }
 
     impl Default for f32x4 {
       #[inline]
@@ -48,12 +48,13 @@ pick! {
     } else {
     #[derive(Default, Clone, Copy, PartialEq)]
     #[repr(C, align(16))]
-    pub struct f32x4 { arr: [f32;4] }
+    pub struct f32x4 { pub(crate) arr: [f32;4] }
   }
 }
 
 macro_rules! const_f32_as_f32x4 {
   ($i:ident, $f:expr) => {
+    #[allow(non_upper_case_globals)]
     pub const $i: f32x4 =
       unsafe { ConstUnionHack128bit { f32a4: [$f; 4] }.f32x4 };
   };
@@ -871,7 +872,6 @@ impl f32x4 {
     (self & magnitude_mask) | (sign & Self::from(-0.0))
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn asin_acos(self) -> (Self, Self) {
     // Based on the Agner Fog "vector class library":
@@ -911,7 +911,6 @@ impl f32x4 {
     (asin, acos)
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn asin(self) -> Self {
     // Based on the Agner Fog "vector class library":
@@ -948,7 +947,6 @@ impl f32x4 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn acos(self) -> Self {
     // Based on the Agner Fog "vector class library":
     // https://github.com/vectorclass/version2/blob/master/vectormath_trig.h
@@ -982,7 +980,6 @@ impl f32x4 {
     acos
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn atan(self) -> Self {
     // Based on the Agner Fog "vector class library":
@@ -1021,7 +1018,6 @@ impl f32x4 {
     re
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn atan2(self, x: Self) -> Self {
     // Based on the Agner Fog "vector class library":
@@ -1080,7 +1076,6 @@ impl f32x4 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn sin_cos(self) -> (Self, Self) {
     // Based on the Agner Fog "vector class library":
     // https://github.com/vectorclass/version2/blob/master/vectormath_trig.h
@@ -1296,7 +1291,6 @@ impl f32x4 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn vm_pow2n(self) -> Self {
     const_f32_as_f32x4!(pow2_23, 8388608.0);
     const_f32_as_f32x4!(bias, 127.0);
@@ -1305,10 +1299,9 @@ impl f32x4 {
     cast::<_, f32x4>(c)
   }
 
-  /// Calculate the exponent of a packed f32x4
+  /// Calculate the exponent of a packed `f32x4`
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn exp(self) -> Self {
     const_f32_as_f32x4!(P0, 1.0 / 2.0);
     const_f32_as_f32x4!(P1, 1.0 / 6.0);
@@ -1334,7 +1327,6 @@ impl f32x4 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn exponent(self) -> f32x4 {
     const_f32_as_f32x4!(pow2_23, 8388608.0);
     const_f32_as_f32x4!(bias, 127.0);
@@ -1347,7 +1339,6 @@ impl f32x4 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn fraction_2(self) -> Self {
     let t1 = cast::<_, u32x4>(self);
     let t2 = cast::<_, u32x4>(
@@ -1391,7 +1382,6 @@ impl f32x4 {
   /// Natural log (ln(x))
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn ln(self) -> Self {
     const_f32_as_f32x4!(HALF, 0.5);
     const_f32_as_f32x4!(P0, 3.3333331174E-1);
@@ -1447,7 +1437,6 @@ impl f32x4 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn pow_f32x4(self, y: f32x4) -> Self {
     const_f32_as_f32x4!(ln2f_hi, 0.693359375);
     const_f32_as_f32x4!(ln2f_lo, -2.12194440e-4);
@@ -1577,5 +1566,25 @@ impl f32x4 {
   #[inline]
   pub fn as_array_mut(&mut self) -> &mut [f32; 4] {
     cast_mut(self)
+  }
+
+  #[inline]
+  pub fn from_i32x4(v: i32x4) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self { sse: convert_to_m128_from_i32_m128i(v.sse) }
+      } else if #[cfg(target_feature="simd128")] {
+        Self { simd: f32x4_convert_i32x4(v.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        Self { neon: unsafe { vcvtq_f32_s32(v.neon) }}
+      } else {
+        Self { arr: [
+            v.as_array_ref()[0] as f32,
+            v.as_array_ref()[1] as f32,
+            v.as_array_ref()[2] as f32,
+            v.as_array_ref()[3] as f32,
+          ] }
+      }
+    }
   }
 }

@@ -8,7 +8,8 @@
 //! This crate intentionally doesn't implement color management (due to complexity of the problem),
 //! but the structs can be parametrized to implement this if necessary. Other colorspaces are out of scope.
 //!
-//! ```rust
+#![cfg_attr(feature = "as-bytes", doc = "```rust")]
+#![cfg_attr(not(feature = "as-bytes"), doc = "```ignore")]
 //! # use rgb::*;
 //! let pixel = RGB8 {r:0, g:100, b:255};
 //!
@@ -25,79 +26,100 @@
 //! # let _ = doubled;
 //! ```
 #![doc(html_logo_url = "https://kornel.ski/rgb-logo.png")]
-#![no_std]
-
 #![warn(missing_docs)]
+#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![no_std]
 
 // std is required to run unit tests
 #[cfg(test)]
 #[macro_use] extern crate std;
+/// Re-export of the [`bytemuck` crate](https://lib.rs/bytemuck). [See docs](https://docs.rs/bytemuck).
+///
+/// Use [`::bytemuck::cast_slice()`] or [`::bytemuck::from_bytes()`] to convert
+/// pixels to/from `&[u8]`.
+#[cfg(feature = "bytemuck")]
+#[doc(alias = "ComponentSlice")]
+#[doc(alias = "as_bytes")]
+#[doc(alias = "Pod")]
+pub use ::bytemuck;
 
-#[cfg(feature = "serde")]
-#[macro_use] extern crate serde;
-
-mod internal {
-    pub mod convert;
-    pub mod ops;
-    pub mod pixel;
+pub(crate) mod formats {
+    pub mod abgr;
+    pub mod argb;
+    pub mod bgr;
+    pub mod bgra;
+    pub mod gray;
+    pub mod gray_a;
+    pub mod gray_alpha;
+    pub mod grb;
     pub mod rgb;
     pub mod rgba;
 }
 
-/// BGR/BGRA alernative layouts & grayscale
-///
-/// BGR might be useful for some Windows or OpenGL APIs.
-pub mod alt;
+/// traits for forward compatibility with the next major version of the crate
+pub mod prelude {
+    pub use crate::legacy::internal::pixel::ComponentMap;
+    pub use crate::legacy::internal::pixel::ColorComponentMap;
+}
+
+pub use formats::abgr::Abgr;
+pub use formats::argb::Argb;
+pub use formats::bgr::Bgr;
+pub use formats::bgra::Bgra;
+#[cfg(not(feature = "unstable-experimental"))]
+pub use formats::gray_alpha::GrayAlpha_v08 as GrayAlpha;
+#[cfg(not(feature = "unstable-experimental"))]
+pub use formats::gray::Gray_v08 as Gray;
+pub use formats::grb::Grb;
+pub use formats::rgb::Rgb;
+pub use formats::rgba::Rgba;
+
+mod inherent_impls;
+
+pub(crate) mod legacy {
+    pub(crate) mod internal {
+        pub mod convert;
+        pub mod ops;
+        pub mod pixel;
+        pub mod rgb;
+        pub mod rgba;
+    }
+    /// BGR/BGRA alernative layouts & grayscale
+    ///
+    /// BGR might be useful for some Windows or OpenGL APIs.
+    pub mod alt;
+}
+
+pub use legacy::alt;
+
+#[cfg(all(feature = "bytemuck", not(feature = "as-bytes")))]
+mod bytemuck_impl;
+#[cfg(feature = "as-bytes")]
+mod as_bytes;
 
 /// Re-export from `bytemuck` crate
 #[cfg(feature = "as-bytes")]
-pub use bytemuck::Pod;
+pub use ::bytemuck::Pod;
 /// Re-export from `bytemuck` crate
 #[cfg(feature = "as-bytes")]
-pub use bytemuck::Zeroable;
+pub use ::bytemuck::Zeroable;
 
-pub use crate::internal::convert::*;
-pub use crate::internal::ops::*;
-pub use crate::internal::pixel::*;
-pub use crate::internal::rgb::*;
-pub use crate::internal::rgba::*;
+pub use crate::legacy::internal::convert::*;
+pub use crate::legacy::internal::pixel::*;
 
-#[repr(C)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-/// The RGB pixel
-///
-/// The component type can be `u8` (aliased as `RGB8`), `u16` (aliased as `RGB16`),
-/// or any other type (but simple copyable types are recommended.)
-pub struct RGB<ComponentType> {
-    /// Red
-    pub r: ComponentType,
-    /// Green
-    pub g: ComponentType,
-    /// Blue
-    pub b: ComponentType,
-}
+#[doc(hidden)]
+/// Renamed to `Rgb`
+pub use formats::rgb::Rgb as RGB;
+#[doc(hidden)]
+/// Renamed to `Rgba`
+pub use formats::rgba::Rgba as RGBA;
 
-#[repr(C)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd, Hash)]
-/// The RGBA pixel
-///
-/// The component type can be `u8` (aliased as `RGBA8`), `u16` (aliased as `RGBA16`),
-/// or any other type (but simple copyable types are recommended.)
-///
-/// You can specify a different type for alpha, but it's only for special cases
-/// (e.g. if you use a newtype like `RGBA<LinearLight<u16>, u16>`).
-pub struct RGBA<ComponentType, AlphaComponentType = ComponentType> {
-    /// Red
-    pub r: ComponentType,
-    /// Green
-    pub g: ComponentType,
-    /// Blue
-    pub b: ComponentType,
-    /// Alpha
-    pub a: AlphaComponentType,
-}
+#[doc(hidden)]
+/// Incompatible replacement for the `GrayAlpha` type
+pub use formats::gray_a::GrayA;
+
+#[cfg(feature = "unstable-experimental")]
+pub use formats::gray::Gray_v09 as Gray;
 
 /// 8-bit RGB
 ///
@@ -134,7 +156,6 @@ fn rgb_works() {
     let rgb = RGB16{r:0u16,g:0x7F7F,b:65535};
     assert_eq!(rgb.b, 65535);
     assert_eq!(rgb.as_slice()[1], 0x7F7F);
-
 
     #[cfg(feature = "as-bytes")]
     {
@@ -219,7 +240,7 @@ fn bytes() {
     assert_eq!(&[1,2,3,4], rgba_slice);
     assert_eq!(&[1,2,3], rgba_slice.as_rgb()[0].as_slice());
     assert_eq!(&[rgba], rgba_slice.as_rgba());
-    assert_eq!(rgba, rgba_slice.into_iter().cloned().collect());
+    assert_eq!(rgba, rgba_slice.iter().copied().collect());
     let mut rgba2 = [rgba];
     assert_eq!(rgba2[..].as_mut_slice().as_rgba_mut(), &mut [rgba]);
 

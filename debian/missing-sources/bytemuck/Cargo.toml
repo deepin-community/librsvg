@@ -12,9 +12,14 @@
 [package]
 edition = "2018"
 name = "bytemuck"
-version = "1.14.2"
+version = "1.20.0"
 authors = ["Lokathor <zefria@gmail.com>"]
+build = false
 exclude = ["/pedantic.bat"]
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A crate for mucking around with piles of bytes."
 readme = "README.md"
 keywords = [
@@ -32,27 +37,57 @@ repository = "https://github.com/Lokathor/bytemuck"
 [package.metadata.docs.rs]
 features = [
     "nightly_docs",
-    "derive",
+    "latest_stable_rust",
     "extern_crate_alloc",
     "extern_crate_std",
-    "zeroable_maybe_uninit",
-    "zeroable_atomics",
-    "min_const_generics",
-    "wasm_simd",
-    "must_cast",
 ]
 
 [package.metadata.playground]
 features = [
-    "derive",
+    "latest_stable_rust",
     "extern_crate_alloc",
     "extern_crate_std",
-    "zeroable_maybe_uninit",
-    "zeroable_atomics",
-    "min_const_generics",
-    "wasm_simd",
-    "must_cast",
 ]
+
+[lib]
+name = "bytemuck"
+path = "src/lib.rs"
+
+[[test]]
+name = "array_tests"
+path = "tests/array_tests.rs"
+
+[[test]]
+name = "cast_slice_tests"
+path = "tests/cast_slice_tests.rs"
+
+[[test]]
+name = "checked_tests"
+path = "tests/checked_tests.rs"
+
+[[test]]
+name = "derive"
+path = "tests/derive.rs"
+
+[[test]]
+name = "doc_tests"
+path = "tests/doc_tests.rs"
+
+[[test]]
+name = "offset_of_tests"
+path = "tests/offset_of_tests.rs"
+
+[[test]]
+name = "std_tests"
+path = "tests/std_tests.rs"
+
+[[test]]
+name = "transparent"
+path = "tests/transparent.rs"
+
+[[test]]
+name = "wrapper_forgets"
+path = "tests/wrapper_forgets.rs"
 
 [dependencies.bytemuck_derive]
 version = "1.4"
@@ -61,15 +96,38 @@ optional = true
 [features]
 aarch64_simd = []
 align_offset = []
+alloc_uninit = []
+const_zeroed = []
 derive = ["bytemuck_derive"]
 extern_crate_alloc = []
 extern_crate_std = ["extern_crate_alloc"]
+latest_stable_rust = [
+    "aarch64_simd",
+    "align_offset",
+    "alloc_uninit",
+    "const_zeroed",
+    "derive",
+    "min_const_generics",
+    "must_cast",
+    "track_caller",
+    "wasm_simd",
+    "zeroable_atomics",
+    "zeroable_maybe_uninit",
+]
 min_const_generics = []
 must_cast = []
 nightly_docs = []
+nightly_float = []
 nightly_portable_simd = []
 nightly_stdsimd = []
+track_caller = []
+transparentwrapper_extra = []
 unsound_ptr_pod_impl = []
 wasm_simd = []
 zeroable_atomics = []
 zeroable_maybe_uninit = []
+
+[lints.rust.unexpected_cfgs]
+level = "deny"
+priority = 0
+check-cfg = ['cfg(target_arch, values("spirv"))']

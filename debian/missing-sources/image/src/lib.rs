@@ -3,7 +3,7 @@
 //! This crate provides native rust implementations of image encoding and decoding as well as some
 //! basic image manipulation functions. Additional documentation can currently also be found in the
 //! [README.md file which is most easily viewed on
-//! github](https://github.com/image-rs/image/blob/master/README.md).
+//! github](https://github.com/image-rs/image/blob/main/README.md).
 //!
 //! There are two core problems for which this library provides solutions: a unified interface for image
 //! encodings and simple generic buffers for their content. It's possible to use either feature
@@ -13,11 +13,11 @@
 //!
 //! # High level API
 //!
-//! Load images using [`io::Reader`]:
+//! Load images using [`ImageReader`](crate::image_reader::ImageReader):
 //!
 //! ```rust,no_run
 //! use std::io::Cursor;
-//! use image::io::Reader as ImageReader;
+//! use image::ImageReader;
 //! # fn main() -> Result<(), image::ImageError> {
 //! # let bytes = vec![0u8];
 //!
@@ -31,7 +31,7 @@
 //!
 //! ```rust,no_run
 //! # use std::io::{Write, Cursor};
-//! # use image::{DynamicImage, ImageOutputFormat};
+//! # use image::{DynamicImage, ImageFormat};
 //! # #[cfg(feature = "png")]
 //! # fn main() -> Result<(), image::ImageError> {
 //! # let img: DynamicImage = unimplemented!();
@@ -39,7 +39,7 @@
 //! img.save("empty.jpg")?;
 //!
 //! let mut bytes: Vec<u8> = Vec::new();
-//! img2.write_to(&mut Cursor::new(&mut bytes), image::ImageOutputFormat::Png)?;
+//! img2.write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)?;
 //! # Ok(())
 //! # }
 //! # #[cfg(not(feature = "png"))] fn main() {}
@@ -49,18 +49,18 @@
 //!
 //! [`save`]: enum.DynamicImage.html#method.save
 //! [`write_to`]: enum.DynamicImage.html#method.write_to
-//! [`io::Reader`]: io/struct.Reader.html
+//! [`ImageReader`]: struct.Reader.html
 //!
 //! # Image buffers
 //!
 //! The two main types for storing images:
 //! * [`ImageBuffer`] which holds statically typed image contents.
-//! * [`DynamicImage`] which is an enum over the supported ImageBuffer formats
+//! * [`DynamicImage`] which is an enum over the supported `ImageBuffer` formats
 //!     and supports conversions between them.
 //!
 //! As well as a few more specialized options:
 //! * [`GenericImage`] trait for a mutable image buffer.
-//! * [`GenericImageView`] trait for read only references to a GenericImage.
+//! * [`GenericImageView`] trait for read only references to a `GenericImage`.
 //! * [`flat`] module containing types for interoperability with generic channel
 //!     matrices and foreign interfaces.
 //!
@@ -91,14 +91,14 @@
 //! While [`ImageDecoder`] and [`ImageDecoderRect`] give access to more advanced decoding options:
 //!
 //! ```rust,no_run
-//! # use std::io::Read;
+//! # use std::io::{BufReader, Cursor};
 //! # use image::DynamicImage;
 //! # use image::ImageDecoder;
 //! # #[cfg(feature = "png")]
 //! # fn main() -> Result<(), image::ImageError> {
 //! # use image::codecs::png::PngDecoder;
 //! # let img: DynamicImage = unimplemented!();
-//! # let reader: Box<dyn Read> = unimplemented!();
+//! # let reader: BufReader<Cursor<&[u8]>> = unimplemented!();
 //! let decoder = PngDecoder::new(&mut reader)?;
 //! let icc = decoder.icc_profile();
 //! let img = DynamicImage::from_decoder(decoder)?;
@@ -117,9 +117,15 @@
 #![deny(deprecated)]
 #![deny(missing_copy_implementations)]
 #![cfg_attr(all(test, feature = "benchmarks"), feature(test))]
-// it's a backwards compatibility break
-#![allow(clippy::wrong_self_convention, clippy::enum_variant_names)]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
+// We've temporarily disabled PCX support for 0.25.5 release
+// by removing the corresponding feature.
+// We want to ship bug fixes without committing to PCX support.
+//
+// Cargo shows warnings about code depending on a nonexistent feature
+// even to people using the crate as a dependency,
+// so we have to suppress those warnings.
+#![allow(unexpected_cfgs)]
 
 #[cfg(all(test, feature = "benchmarks"))]
 extern crate test;
@@ -142,10 +148,8 @@ pub use crate::image::{
     ImageDecoderRect,
     ImageEncoder,
     ImageFormat,
-    ImageOutputFormat,
     // Iterators
     Pixels,
-    Progress,
     SubImage,
 };
 
@@ -170,7 +174,8 @@ pub use crate::dynimage::{
     image_dimensions, load_from_memory, load_from_memory_with_format, open, save_buffer,
     save_buffer_with_format, write_buffer_with_format,
 };
-pub use crate::io::free_functions::{guess_format, load};
+pub use crate::image_reader::free_functions::{guess_format, load};
+pub use crate::image_reader::{ImageReader, LimitSupport, Limits};
 
 pub use crate::dynimage::DynamicImage;
 
@@ -197,9 +202,6 @@ pub mod math;
 // Image processing functions
 pub mod imageops;
 
-// Io bindings
-pub mod io;
-
 // Buffer representations for ffi.
 pub mod flat;
 
@@ -211,21 +213,23 @@ pub mod flat;
 ///
 /// | Format   | Decoding                                  | Encoding                                |
 /// | -------- | ----------------------------------------- | --------------------------------------- |
-/// | AVIF     | Only 8-bit                                | Lossy                                   |
-/// | BMP      | Yes                                       | Rgb8, Rgba8, Gray8, GrayA8              |
-/// | DDS      | DXT1, DXT3, DXT5                          | No                                      |
+/// | AVIF     | Yes \*                                    | Yes (lossy only)                        |
+/// | BMP      | Yes                                       | Yes                                     |
+/// | DDS      | Yes                                       | ---                                     |
 /// | Farbfeld | Yes                                       | Yes                                     |
 /// | GIF      | Yes                                       | Yes                                     |
 /// | HDR      | Yes                                       | Yes                                     |
 /// | ICO      | Yes                                       | Yes                                     |
-/// | JPEG     | Baseline and progressive                  | Baseline JPEG                           |
-/// | OpenEXR  | Rgb32F, Rgba32F (no dwa compression)      | Rgb32F, Rgba32F (no dwa compression)    |
-/// | PNG      | All supported color types                 | Same as decoding                        |
-/// | PNM      | PBM, PGM, PPM, standard PAM               | Yes                                     |
+/// | JPEG     | Yes                                       | Yes                                     |
+/// | EXR      | Yes                                       | Yes                                     |
+/// | PNG      | Yes                                       | Yes                                     |
+/// | PNM      | Yes                                       | Yes                                     |
 /// | QOI      | Yes                                       | Yes                                     |
-/// | TGA      | Yes                                       | Rgb8, Rgba8, Bgr8, Bgra8, Gray8, GrayA8 |
-/// | TIFF     | Baseline(no fax support) + LZW + PackBits | Rgb8, Rgba8, Gray8                      |
-/// | WebP     | Yes                                       | Rgb8, Rgba8                             |
+/// | TGA      | Yes                                       | Yes                                     |
+/// | TIFF     | Yes                                       | Yes                                     |
+/// | WebP     | Yes                                       | Yes (lossless only)                     |
+///
+/// - \* Requires the `avif-native` feature, uses the libdav1d C library.
 ///
 /// ## A note on format specific features
 ///
@@ -249,16 +253,13 @@ pub mod flat;
 ///
 /// Re-exports of dependencies that reach version `1` will be discussed when it happens.
 pub mod codecs {
-    #[cfg(any(feature = "avif-encoder", feature = "avif-decoder"))]
+    #[cfg(any(feature = "avif", feature = "avif-native"))]
     pub mod avif;
     #[cfg(feature = "bmp")]
     pub mod bmp;
     #[cfg(feature = "dds")]
     pub mod dds;
-    #[cfg(feature = "dxt")]
-    #[deprecated = "DXT support will be removed or reworked in a future version. Prefer the `squish` crate instead. See https://github.com/image-rs/image/issues/1623"]
-    pub mod dxt;
-    #[cfg(feature = "farbfeld")]
+    #[cfg(feature = "ff")]
     pub mod farbfeld;
     #[cfg(feature = "gif")]
     pub mod gif;
@@ -270,6 +271,8 @@ pub mod codecs {
     pub mod jpeg;
     #[cfg(feature = "exr")]
     pub mod openexr;
+    #[cfg(feature = "pcx")]
+    pub mod pcx;
     #[cfg(feature = "png")]
     pub mod png;
     #[cfg(feature = "pnm")]
@@ -282,6 +285,9 @@ pub mod codecs {
     pub mod tiff;
     #[cfg(feature = "webp")]
     pub mod webp;
+
+    #[cfg(feature = "dds")]
+    mod dxt;
 }
 
 mod animation;
@@ -292,6 +298,21 @@ mod buffer_par;
 mod color;
 mod dynimage;
 mod image;
+mod image_reader;
+pub mod metadata;
+//TODO delete this module after a few releases
+/// deprecated io module the original io module has been renamed to `image_reader`
+pub mod io {
+    #[deprecated(note = "this type has been moved and renamed to image::ImageReader")]
+    /// Deprecated re-export of `ImageReader` as `Reader`
+    pub type Reader<R> = super::ImageReader<R>;
+    #[deprecated(note = "this type has been moved to image::Limits")]
+    /// Deprecated re-export of `Limits`
+    pub type Limits = super::Limits;
+    #[deprecated(note = "this type has been moved to image::LimitSupport")]
+    /// Deprecated re-export of `LimitSupport`
+    pub type LimitSupport = super::LimitSupport;
+}
 mod traits;
 mod utils;
 

@@ -10,9 +10,10 @@
 //! use image::codecs::gif::{GifDecoder, GifEncoder};
 //! use image::{ImageDecoder, AnimationDecoder};
 //! use std::fs::File;
+//! use std::io::BufReader;
 //! # fn main() -> std::io::Result<()> {
 //! // Decode a gif into frames
-//! let file_in = File::open("foo.gif")?;
+//! let file_in = BufReader::new(File::open("foo.gif")?);
 //! let mut decoder = GifDecoder::new(file_in).unwrap();
 //! let frames = decoder.into_frames();
 //! let frames = frames.collect_frames().expect("error decoding gif");
@@ -26,9 +27,7 @@
 //! ```
 #![allow(clippy::while_let_loop)]
 
-use std::convert::TryFrom;
-use std::convert::TryInto;
-use std::io::{self, Cursor, Read, Write};
+use std::io::{self, BufRead, Cursor, Read, Seek, Write};
 use std::marker::PhantomData;
 use std::mem;
 
@@ -37,14 +36,17 @@ use gif::{DisposalMethod, Frame};
 
 use crate::animation::{self, Ratio};
 use crate::color::{ColorType, Rgba};
+use crate::error::LimitError;
+use crate::error::LimitErrorKind;
 use crate::error::{
     DecodingError, EncodingError, ImageError, ImageResult, ParameterError, ParameterErrorKind,
     UnsupportedError, UnsupportedErrorKind,
 };
-use crate::image::{self, AnimationDecoder, ImageDecoder, ImageFormat};
-use crate::io::Limits;
+use crate::image::{AnimationDecoder, ImageDecoder, ImageFormat};
 use crate::traits::Pixel;
+use crate::ExtendedColorType;
 use crate::ImageBuffer;
+use crate::Limits;
 
 /// GIF decoder
 pub struct GifDecoder<R: Read> {
@@ -63,20 +65,13 @@ impl<R: Read> GifDecoder<R> {
             limits: Limits::no_limits(),
         })
     }
-
-    /// Creates a new decoder that decodes the input steam `r`, using limits `limits`
-    #[deprecated(since = "0.24.8", note = "Use `new` followed by `set_limits` instead")]
-    pub fn with_limits(r: R, limits: Limits) -> ImageResult<GifDecoder<R>> {
-        let mut decoder = Self::new(r)?;
-        // call `.set_limits()` instead of just setting the field directly
-        // so that we raise an error in case they are exceeded
-        decoder.set_limits(limits)?;
-        Ok(decoder)
-    }
 }
 
 /// Wrapper struct around a `Cursor<Vec<u8>>`
+#[allow(dead_code)]
+#[deprecated]
 pub struct GifReader<R>(Cursor<Vec<u8>>, PhantomData<R>);
+#[allow(deprecated)]
 impl<R> Read for GifReader<R> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         self.0.read(buf)
@@ -91,9 +86,7 @@ impl<R> Read for GifReader<R> {
     }
 }
 
-impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
-    type Reader = GifReader<R>;
-
+impl<R: BufRead + Seek> ImageDecoder for GifDecoder<R> {
     fn dimensions(&self) -> (u32, u32) {
         (
             u32::from(self.reader.width()),
@@ -105,15 +98,8 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
         ColorType::Rgba8
     }
 
-    fn into_reader(self) -> ImageResult<Self::Reader> {
-        Ok(GifReader(
-            Cursor::new(image::decoder_to_vec(self)?),
-            PhantomData,
-        ))
-    }
-
     fn set_limits(&mut self, limits: Limits) -> ImageResult<()> {
-        limits.check_support(&crate::io::LimitSupport::default())?;
+        limits.check_support(&crate::LimitSupport::default())?;
 
         let (width, height) = self.dimensions();
         limits.check_dimensions(width, height)?;
@@ -143,7 +129,7 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
 
         if frame.left == 0
             && frame.width == width
-            && (frame.top as u64 + frame.height as u64 <= height as u64)
+            && (u64::from(frame.top) + u64::from(frame.height) <= u64::from(height))
         {
             // If the frame matches the logical screen, or, as a more general case,
             // fits into it and touches its left and right borders, then
@@ -177,12 +163,15 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
         } else {
             // If the frame does not match the logical screen, read into an extra buffer
             // and 'insert' the frame from left/top to logical screen width/height.
-            let buffer_size = self.reader.buffer_size();
+            let buffer_size = (frame.width as usize)
+                .checked_mul(frame.height as usize)
+                .and_then(|s| s.checked_mul(4))
+                .ok_or(ImageError::Limits(LimitError::from_kind(
+                    LimitErrorKind::InsufficientMemory,
+                )))?;
 
             self.limits.reserve_usize(buffer_size)?;
-
             let mut frame_buffer = vec![0; buffer_size];
-
             self.limits.free_usize(buffer_size);
 
             self.reader
@@ -225,6 +214,10 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for GifDecoder<R> {
 
         Ok(())
     }
+
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        (*self).read_image(buf)
+    }
 }
 
 struct GifFrameIterator<R: Read> {
@@ -237,7 +230,7 @@ struct GifFrameIterator<R: Read> {
     limits: Limits,
 }
 
-impl<R: Read> GifFrameIterator<R> {
+impl<R: BufRead + Seek> GifFrameIterator<R> {
     fn new(decoder: GifDecoder<R>) -> GifFrameIterator<R> {
         let (width, height) = decoder.dimensions();
         let limits = decoder.limits.clone();
@@ -258,19 +251,17 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
     type Item = ImageResult<animation::Frame>;
 
     fn next(&mut self) -> Option<ImageResult<animation::Frame>> {
-        fn limits_reserve_buffer(limits: &mut Limits, width: u32, height: u32) -> ImageResult<()> {
-            limits.check_dimensions(width, height)?;
-            // cannot overflow because width/height are u16 in the actual GIF format,
-            // so this cannot exceed 64GB which easily fits into a u64
-            let in_memory_size = width as u64 * height as u64 * 4;
-            limits.reserve(in_memory_size)
-        }
+        // The iterator always produces RGBA8 images
+        const COLOR_TYPE: ColorType = ColorType::Rgba8;
 
         // Allocate the buffer for the previous frame.
         // This is done here and not in the constructor because
         // the constructor cannot return an error when the allocation limit is exceeded.
         if self.non_disposed_frame.is_none() {
-            if let Err(e) = limits_reserve_buffer(&mut self.limits, self.width, self.height) {
+            if let Err(e) = self
+                .limits
+                .reserve_buffer(self.width, self.height, COLOR_TYPE)
+            {
                 return Some(Err(e));
             }
             self.non_disposed_frame = Some(ImageBuffer::from_pixel(
@@ -303,7 +294,7 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
         let mut local_limits = self.limits.clone();
 
         // Check the allocation we're about to perform against the limits
-        if let Err(e) = limits_reserve_buffer(&mut local_limits, frame.width, frame.height) {
+        if let Err(e) = local_limits.reserve_buffer(frame.width, frame.height, COLOR_TYPE) {
             return Some(Err(e));
         }
         // Allocate the buffer now that the limits allowed it
@@ -317,19 +308,16 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
         // correct storage requirement if the result does not fit in `usize`.
         // on the other hand, `ImageBuffer::from_raw` detects overflow and
         // reports by returning `None`.
-        let mut frame_buffer = match ImageBuffer::from_raw(frame.width, frame.height, vec) {
-            Some(frame_buffer) => frame_buffer,
-            None => {
-                return Some(Err(ImageError::Unsupported(
-                    UnsupportedError::from_format_and_kind(
-                        ImageFormat::Gif.into(),
-                        UnsupportedErrorKind::GenericFeature(format!(
-                            "Image dimensions ({}, {}) are too large",
-                            frame.width, frame.height
-                        )),
-                    ),
-                )))
-            }
+        let Some(mut frame_buffer) = ImageBuffer::from_raw(frame.width, frame.height, vec) else {
+            return Some(Err(ImageError::Unsupported(
+                UnsupportedError::from_format_and_kind(
+                    ImageFormat::Gif.into(),
+                    UnsupportedErrorKind::GenericFeature(format!(
+                        "Image dimensions ({}, {}) are too large",
+                        frame.width, frame.height
+                    )),
+                ),
+            )));
         };
 
         // blend the current frame with the non-disposed frame, then update
@@ -377,7 +365,7 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
             frame_buffer
         } else {
             // Check limits before allocating the buffer
-            if let Err(e) = limits_reserve_buffer(&mut local_limits, self.width, self.height) {
+            if let Err(e) = local_limits.reserve_buffer(self.width, self.height, COLOR_TYPE) {
                 return Some(Err(e));
             }
             ImageBuffer::from_fn(self.width, self.height, |x, y| {
@@ -405,7 +393,7 @@ impl<R: Read> Iterator for GifFrameIterator<R> {
     }
 }
 
-impl<'a, R: Read + 'a> AnimationDecoder<'a> for GifDecoder<R> {
+impl<'a, R: BufRead + Seek + 'a> AnimationDecoder<'a> for GifDecoder<R> {
     fn into_frames(self) -> animation::Frames<'a> {
         animation::Frames::new(Box::new(GifFrameIterator::new(self)))
     }
@@ -444,9 +432,9 @@ pub enum Repeat {
 }
 
 impl Repeat {
-    pub(crate) fn to_gif_enum(&self) -> gif::Repeat {
+    pub(crate) fn to_gif_enum(self) -> gif::Repeat {
         match self {
-            Repeat::Finite(n) => gif::Repeat::Finite(*n),
+            Repeat::Finite(n) => gif::Repeat::Finite(n),
             Repeat::Infinite => gif::Repeat::Infinite,
         }
     }
@@ -499,18 +487,18 @@ impl<W: Write> GifEncoder<W> {
         data: &[u8],
         width: u32,
         height: u32,
-        color: ColorType,
+        color: ExtendedColorType,
     ) -> ImageResult<()> {
         let (width, height) = self.gif_dimensions(width, height)?;
         match color {
-            ColorType::Rgb8 => self.encode_gif(Frame::from_rgb(width, height, data)),
-            ColorType::Rgba8 => {
+            ExtendedColorType::Rgb8 => self.encode_gif(Frame::from_rgb(width, height, data)),
+            ExtendedColorType::Rgba8 => {
                 self.encode_gif(Frame::from_rgba(width, height, &mut data.to_owned()))
             }
             _ => Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
                     ImageFormat::Gif.into(),
-                    UnsupportedErrorKind::Color(color.into()),
+                    UnsupportedErrorKind::Color(color),
                 ),
             )),
         }
@@ -563,7 +551,7 @@ impl<W: Write> GifEncoder<W> {
         // would require a new special cased variant in ParameterErrorKind which most
         // likely couldn't be reused for other cases. This isn't a bad trade-off given
         // that the current algorithm is already lossy.
-        frame.delay = (frame_delay / 10).try_into().unwrap_or(std::u16::MAX);
+        frame.delay = (frame_delay / 10).try_into().unwrap_or(u16::MAX);
 
         Ok(frame)
     }
@@ -597,10 +585,10 @@ impl<W: Write> GifEncoder<W> {
                     .map_err(ImageError::from_encoding)?;
             }
             self.gif_encoder = Some(encoder);
-            gif_encoder = self.gif_encoder.as_mut().unwrap()
+            gif_encoder = self.gif_encoder.as_mut().unwrap();
         }
 
-        frame.dispose = gif::DisposalMethod::Background;
+        frame.dispose = DisposalMethod::Background;
 
         gif_encoder
             .write_frame(&frame)

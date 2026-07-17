@@ -9,7 +9,8 @@
 
 use crate::{bf16, binary16::arch, f16};
 #[cfg(feature = "alloc")]
-use alloc::vec::Vec;
+#[allow(unused_imports)]
+use alloc::{vec, vec::Vec};
 use core::slice;
 
 /// Extensions to `[f16]` and `[bf16]` slices to support conversion and reinterpret operations.
@@ -364,11 +365,7 @@ impl HalfFloatSliceExt for [f16] {
     #[inline]
     #[allow(clippy::uninit_vec)]
     fn to_f32_vec(&self) -> Vec<f32> {
-        let mut vec = Vec::with_capacity(self.len());
-        // SAFETY: convert will initialize every value in the vector without reading them,
-        // so this is safe to do instead of double initialize from resize, and we're setting it to
-        // same value as capacity.
-        unsafe { vec.set_len(self.len()) };
+        let mut vec = vec![0f32; self.len()];
         self.convert_to_f32_slice(&mut vec);
         vec
     }
@@ -377,11 +374,7 @@ impl HalfFloatSliceExt for [f16] {
     #[inline]
     #[allow(clippy::uninit_vec)]
     fn to_f64_vec(&self) -> Vec<f64> {
-        let mut vec = Vec::with_capacity(self.len());
-        // SAFETY: convert will initialize every value in the vector without reading them,
-        // so this is safe to do instead of double initialize from resize, and we're setting it to
-        // same value as capacity.
-        unsafe { vec.set_len(self.len()) };
+        let mut vec = vec![0f64; self.len()];
         self.convert_to_f64_slice(&mut vec);
         vec
     }
@@ -466,11 +459,7 @@ impl HalfFloatSliceExt for [bf16] {
     #[inline]
     #[allow(clippy::uninit_vec)]
     fn to_f32_vec(&self) -> Vec<f32> {
-        let mut vec = Vec::with_capacity(self.len());
-        // SAFETY: convert will initialize every value in the vector without reading them,
-        // so this is safe to do instead of double initialize from resize, and we're setting it to
-        // same value as capacity.
-        unsafe { vec.set_len(self.len()) };
+        let mut vec = vec![0f32; self.len()];
         self.convert_to_f32_slice(&mut vec);
         vec
     }
@@ -479,11 +468,7 @@ impl HalfFloatSliceExt for [bf16] {
     #[inline]
     #[allow(clippy::uninit_vec)]
     fn to_f64_vec(&self) -> Vec<f64> {
-        let mut vec = Vec::with_capacity(self.len());
-        // SAFETY: convert will initialize every value in the vector without reading them,
-        // so this is safe to do instead of double initialize from resize, and we're setting it to
-        // same value as capacity.
-        unsafe { vec.set_len(self.len()) };
+        let mut vec = vec![0f64; self.len()];
         self.convert_to_f64_slice(&mut vec);
         vec
     }

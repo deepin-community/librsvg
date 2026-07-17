@@ -103,7 +103,7 @@
 
 use std::{
     borrow::Cow,
-    cmp::{Eq, Ordering, PartialEq, PartialOrd},
+    cmp::Ordering,
     collections::{BTreeMap, HashMap},
     fmt,
     hash::{BuildHasher, Hash, Hasher},
@@ -111,7 +111,8 @@ use std::{
 };
 
 use crate::{
-    prelude::*, translate::*, Bytes, Type, VariantIter, VariantStrIter, VariantTy, VariantType,
+    ffi, gobject_ffi, prelude::*, translate::*, Bytes, Type, VariantIter, VariantStrIter,
+    VariantTy, VariantType,
 };
 
 wrapper! {
@@ -1003,7 +1004,7 @@ impl<'a, T: ?Sized + ToVariant> ToVariant for &'a T {
     }
 }
 
-impl<'a, T: ?Sized + Into<Variant> + Clone> From<&'a T> for Variant {
+impl<'a, T: Into<Variant> + Clone> From<&'a T> for Variant {
     #[inline]
     fn from(v: &'a T) -> Self {
         v.clone().into()
@@ -2197,7 +2198,7 @@ mod tests {
         ($name:ident, $ty:ident) => {
             #[test]
             fn $name() {
-                let mut n = $ty::max_value();
+                let mut n = $ty::MAX;
                 while n > 0 {
                     let v = n.to_variant();
                     assert_eq!(v.get(), Some(n));
@@ -2211,7 +2212,7 @@ mod tests {
         ($name:ident, $ty:ident) => {
             #[test]
             fn $name() {
-                let mut n = $ty::max_value();
+                let mut n = $ty::MAX;
                 while n > 0 {
                     let v = n.to_variant();
                     assert_eq!(v.get(), Some(n));

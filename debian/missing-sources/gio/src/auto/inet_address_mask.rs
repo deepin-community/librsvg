@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{InetAddress, Initable, SocketFamily};
+use crate::{ffi, InetAddress, Initable, SocketFamily};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -153,7 +153,7 @@ pub trait InetAddressMaskExt: IsA<InetAddressMask> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::address\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_address_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -179,7 +179,7 @@ pub trait InetAddressMaskExt: IsA<InetAddressMask> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::family\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_family_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -205,7 +205,7 @@ pub trait InetAddressMaskExt: IsA<InetAddressMask> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::length\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_length_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

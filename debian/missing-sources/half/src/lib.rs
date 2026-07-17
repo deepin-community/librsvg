@@ -100,6 +100,8 @@
 //! - **`rand_distr`** — Adds support for the [`rand_distr`] crate by implementing [`Distribution`]
 //!   and other traits for both [`f16`] and [`bf16`].
 //!
+//! - **`rkyv`** -- Enable zero-copy deserializtion with [`rkyv`] crate.
+//!
 //! [`alloc`]: https://doc.rust-lang.org/alloc/
 //! [`std`]: https://doc.rust-lang.org/std/
 //! [`binary16`]: https://en.wikipedia.org/wiki/Half-precision_floating-point_format
@@ -109,6 +111,7 @@
 //! [`num-traits`]: https://crates.io/crates/num-traits
 //! [`zerocopy`]: https://crates.io/crates/zerocopy
 //! [`rand_distr`]: https://crates.io/crates/rand_distr
+//! [`rkyv`]: (https://crates.io/crates/rkyv)
 #![cfg_attr(
     feature = "alloc",
     doc = "
@@ -197,7 +200,7 @@
 #![cfg_attr(not(target_arch = "spirv"), warn(missing_debug_implementations))]
 #![allow(clippy::verbose_bit_mask, clippy::cast_lossless)]
 #![cfg_attr(not(feature = "std"), no_std)]
-#![doc(html_root_url = "https://docs.rs/half/2.3.1")]
+#![doc(html_root_url = "https://docs.rs/half/2.4.1")]
 #![doc(test(attr(deny(warnings), allow(unused))))]
 #![cfg_attr(docsrs, feature(doc_auto_cfg))]
 

@@ -1,6 +1,7 @@
 //! Text elements: `text`, `tspan`, `tref`.
 
-use markup5ever::{expanded_name, local_name, namespace_url, ns};
+use markup5ever::{expanded_name, local_name, namespace_url, ns, QualName};
+use pango::prelude::FontExt;
 use pango::IsAttribute;
 use std::cell::RefCell;
 use std::convert::TryFrom;
@@ -15,10 +16,10 @@ use crate::layout::{self, FontProperties, Layer, LayerKind, StackingContext, Str
 use crate::length::*;
 use crate::node::{CascadedValues, Node, NodeBorrow};
 use crate::paint_server::PaintSource;
-use crate::parsers::ParseValue;
+use crate::parsers::{CommaSeparatedList, Parse, ParseValue};
 use crate::properties::{
-    ComputedValues, Direction, FontStretch, FontStyle, FontVariant, FontWeight, PaintOrder,
-    TextAnchor, TextRendering, UnicodeBidi, WritingMode, XmlLang, XmlSpace,
+    ComputedValues, Direction, DominantBaseline, FontStretch, FontStyle, FontVariant, FontWeight,
+    PaintOrder, TextAnchor, TextRendering, UnicodeBidi, WritingMode, XmlLang, XmlSpace,
 };
 use crate::rect::Rect;
 use crate::rsvg_log;
@@ -192,6 +193,9 @@ impl PositionedChunk {
 
         let mut chunk_bounds: Option<Rect> = None;
 
+        // Find the bounding box of the entire chunk by taking the union of the bounding boxes
+        // of each individual span.
+
         for mspan in &measured.spans {
             let params = NormalizeParams::new(&mspan.values, &layout_context.viewport);
 
@@ -222,6 +226,8 @@ impl PositionedChunk {
 
             let span_bounds =
                 Rect::from_size(layout_size.0, layout_size.1).translate(rendered_position);
+
+            // We take the union here
 
             if let Some(bounds) = chunk_bounds {
                 chunk_bounds = Some(bounds.union(&span_bounds));
@@ -282,8 +288,65 @@ fn compute_baseline_offset(
     values: &ComputedValues,
     params: &NormalizeParams,
 ) -> f64 {
-    let baseline = f64::from(layout.baseline()) / f64::from(pango::SCALE);
+    let mut baseline = f64::from(layout.baseline()) / f64::from(pango::SCALE);
+    let dominant_baseline = values.dominant_baseline();
+
+    let mut layout_iter = layout.iter();
+    loop {
+        let run = layout_iter.run_readonly();
+
+        if run.is_some() {
+            let item = run.unwrap().item();
+            let font = item.analysis().font();
+
+            let metrics = font.metrics(None);
+            let ascent = metrics.ascent();
+            let descent = metrics.descent();
+            let height = metrics.height();
+
+            match dominant_baseline {
+                DominantBaseline::Hanging => {
+                    baseline -= f64::from(ascent - descent) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::Middle => {
+                    // Approximate meanline using strikethrough position and thickness
+                    // https://mail.gnome.org/archives/gtk-i18n-list/2012-December/msg00046.html
+                    baseline -= f64::from(
+                        metrics.strikethrough_position() + metrics.strikethrough_thickness() / 2,
+                    ) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::Central => {
+                    baseline = 0.5 * f64::from(ascent + descent) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::TextBeforeEdge | DominantBaseline::TextTop => {
+                    //baseline -= f64::from(ascent) / f64::from(pango::SCALE);
+                    // Bit of a klutch, but leads to better results
+                    baseline -= f64::from(2 * ascent - height) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::TextAfterEdge | DominantBaseline::TextBottom => {
+                    baseline += f64::from(descent) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::Ideographic => {
+                    // Approx
+                    baseline += f64::from(descent) / f64::from(pango::SCALE);
+                }
+                DominantBaseline::Mathematical => {
+                    // Approx
+                    baseline = 0.5 * f64::from(ascent + descent) / f64::from(pango::SCALE);
+                }
+                _ => (),
+            }
+
+            break;
+        }
+
+        if !layout_iter.next_run() {
+            break;
+        }
+    }
+
     let baseline_shift = values.baseline_shift().0.to_user(params);
+
     baseline + baseline_shift
 }
 
@@ -748,35 +811,67 @@ impl Text {
     }
 }
 
+// Parse an (optionally) comma-separated list and just return the first element.
+//
+// From https://gitlab.gnome.org/GNOME/librsvg/-/issues/183, the current implementation
+// of text layout only supports a single value for the x/y/dx/dy attributes.  However,
+// we need to be able to parse values with multiple lengths.  So, we'll do that, but just
+// use the first value from each attribute.
+fn parse_list_and_extract_first<T: Copy + Default + Parse>(
+    dest: &mut T,
+    attr: QualName,
+    value: &str,
+    session: &Session,
+) {
+    let mut list: CommaSeparatedList<T, 0, 1024> = CommaSeparatedList(Vec::new());
+
+    set_attribute(&mut list, attr.parse(value), session);
+    if list.0.is_empty() {
+        *dest = Default::default();
+    } else {
+        *dest = list.0[0]; // ignore all but the first element
+    }
+}
+
 impl ElementTrait for Text {
     fn set_attributes(&mut self, attrs: &Attributes, session: &Session) {
         for (attr, value) in attrs.iter() {
             match attr.expanded() {
-                expanded_name!("", "x") => set_attribute(&mut self.x, attr.parse(value), session),
-                expanded_name!("", "y") => set_attribute(&mut self.y, attr.parse(value), session),
-                expanded_name!("", "dx") => set_attribute(&mut self.dx, attr.parse(value), session),
-                expanded_name!("", "dy") => set_attribute(&mut self.dy, attr.parse(value), session),
+                expanded_name!("", "x") => {
+                    parse_list_and_extract_first(&mut self.x, attr, value, session)
+                }
+                expanded_name!("", "y") => {
+                    parse_list_and_extract_first(&mut self.y, attr, value, session)
+                }
+                expanded_name!("", "dx") => {
+                    parse_list_and_extract_first(&mut self.dx, attr, value, session)
+                }
+                expanded_name!("", "dy") => {
+                    parse_list_and_extract_first(&mut self.dy, attr, value, session)
+                }
                 _ => (),
             }
         }
     }
 
-    fn draw(
+    fn layout(
         &self,
         node: &Node,
         acquired_nodes: &mut AcquiredNodes<'_>,
         cascaded: &CascadedValues<'_>,
         viewport: &Viewport,
         draw_ctx: &mut DrawingCtx,
-        clipping: bool,
-    ) -> Result<BoundingBox, InternalRenderingError> {
+        _clipping: bool,
+    ) -> Result<Option<Layer>, InternalRenderingError> {
         let values = cascaded.get();
         let params = NormalizeParams::new(values, viewport);
 
         let elt = node.borrow_element();
 
+        let session = draw_ctx.session().clone();
+
         let stacking_ctx = StackingContext::new(
-            draw_ctx.session(),
+            &session,
             acquired_nodes,
             &elt,
             values.transform(),
@@ -785,14 +880,14 @@ impl ElementTrait for Text {
         );
 
         let layout_text = {
-            let transform = draw_ctx.get_transform_for_stacking_ctx(&stacking_ctx, clipping)?;
+            let transform = ValidTransform::try_from(Transform::identity()).unwrap();
 
             let layout_context = LayoutContext {
                 writing_mode: values.writing_mode(),
                 transform,
                 font_options: draw_ctx.get_font_options(),
                 viewport: viewport.clone(),
-                session: draw_ctx.session().clone(),
+                session: session.clone(),
             };
 
             let mut x = self.x.to_user(&params);
@@ -872,12 +967,25 @@ impl ElementTrait for Text {
             layout::Text { spans: text_spans }
         };
 
-        let layer = Layer {
+        Ok(Some(Layer {
             kind: LayerKind::Text(Box::new(layout_text)),
             stacking_ctx,
-        };
+        }))
+    }
 
-        draw_ctx.draw_layer(&layer, acquired_nodes, clipping, viewport)
+    fn draw(
+        &self,
+        node: &Node,
+        acquired_nodes: &mut AcquiredNodes<'_>,
+        cascaded: &CascadedValues<'_>,
+        viewport: &Viewport,
+        draw_ctx: &mut DrawingCtx,
+        clipping: bool,
+    ) -> Result<BoundingBox, InternalRenderingError> {
+        self.layout(node, acquired_nodes, cascaded, viewport, draw_ctx, clipping)
+            .and_then(|layer| {
+                draw_ctx.draw_layer(layer.as_ref().unwrap(), acquired_nodes, clipping, viewport)
+            })
     }
 }
 
@@ -1008,10 +1116,18 @@ impl ElementTrait for TSpan {
     fn set_attributes(&mut self, attrs: &Attributes, session: &Session) {
         for (attr, value) in attrs.iter() {
             match attr.expanded() {
-                expanded_name!("", "x") => set_attribute(&mut self.x, attr.parse(value), session),
-                expanded_name!("", "y") => set_attribute(&mut self.y, attr.parse(value), session),
-                expanded_name!("", "dx") => set_attribute(&mut self.dx, attr.parse(value), session),
-                expanded_name!("", "dy") => set_attribute(&mut self.dy, attr.parse(value), session),
+                expanded_name!("", "x") => {
+                    parse_list_and_extract_first(&mut self.x, attr, value, session)
+                }
+                expanded_name!("", "y") => {
+                    parse_list_and_extract_first(&mut self.y, attr, value, session)
+                }
+                expanded_name!("", "dx") => {
+                    parse_list_and_extract_first(&mut self.dx, attr, value, session)
+                }
+                expanded_name!("", "dy") => {
+                    parse_list_and_extract_first(&mut self.dy, attr, value, session)
+                }
                 _ => (),
             }
         }

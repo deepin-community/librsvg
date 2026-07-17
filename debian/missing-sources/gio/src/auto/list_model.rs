@@ -2,6 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
+use crate::ffi;
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -77,9 +78,9 @@ pub trait ListModelExt: IsA<ListModel> + sealed::Sealed + 'static {
             F: Fn(&P, u32, u32, u32) + 'static,
         >(
             this: *mut ffi::GListModel,
-            position: libc::c_uint,
-            removed: libc::c_uint,
-            added: libc::c_uint,
+            position: std::ffi::c_uint,
+            removed: std::ffi::c_uint,
+            added: std::ffi::c_uint,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -95,7 +96,7 @@ pub trait ListModelExt: IsA<ListModel> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"items-changed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     items_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

@@ -14,6 +14,7 @@ pick! {
 
 macro_rules! const_f32_as_f32x8 {
   ($i:ident, $f:expr) => {
+    #[allow(non_upper_case_globals)]
     pub const $i: f32x8 =
       unsafe { ConstUnionHack256bit { f32a8: [$f; 8] }.f32x8 };
   };
@@ -680,7 +681,6 @@ impl f32x8 {
     (self & magnitude_mask) | (sign & Self::from(-0.0))
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn asin_acos(self) -> (Self, Self) {
     // Based on the Agner Fog "vector class library":
@@ -722,7 +722,6 @@ impl f32x8 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn asin(self) -> Self {
     // Based on the Agner Fog "vector class library":
     // https://github.com/vectorclass/version2/blob/master/vectormath_trig.h
@@ -758,7 +757,6 @@ impl f32x8 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn acos(self) -> Self {
     // Based on the Agner Fog "vector class library":
     // https://github.com/vectorclass/version2/blob/master/vectormath_trig.h
@@ -792,7 +790,6 @@ impl f32x8 {
     acos
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn atan(self) -> Self {
     // Based on the Agner Fog "vector class library":
@@ -831,7 +828,6 @@ impl f32x8 {
     re
   }
 
-  #[allow(non_upper_case_globals)]
   #[inline]
   pub fn atan2(self, x: Self) -> Self {
     // Based on the Agner Fog "vector class library":
@@ -890,7 +886,6 @@ impl f32x8 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn sin_cos(self) -> (Self, Self) {
     // Based on the Agner Fog "vector class library":
     // https://github.com/vectorclass/version2/blob/master/vectormath_trig.h
@@ -1053,7 +1048,6 @@ impl f32x8 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn vm_pow2n(self) -> Self {
     const_f32_as_f32x8!(pow2_23, 8388608.0);
     const_f32_as_f32x8!(bias, 127.0);
@@ -1062,10 +1056,9 @@ impl f32x8 {
     cast::<_, f32x8>(c)
   }
 
-  /// Calculate the exponent of a packed f32x8
+  /// Calculate the exponent of a packed `f32x8`
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn exp(self) -> Self {
     const_f32_as_f32x8!(P0, 1.0 / 2.0);
     const_f32_as_f32x8!(P1, 1.0 / 6.0);
@@ -1091,7 +1084,6 @@ impl f32x8 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn exponent(self) -> f32x8 {
     const_f32_as_f32x8!(pow2_23, 8388608.0);
     const_f32_as_f32x8!(bias, 127.0);
@@ -1104,7 +1096,6 @@ impl f32x8 {
   }
 
   #[inline]
-  #[allow(non_upper_case_globals)]
   fn fraction_2(self) -> Self {
     let t1 = cast::<_, u32x8>(self);
     let t2 = cast::<_, u32x8>(
@@ -1163,7 +1154,6 @@ impl f32x8 {
   /// Natural log (ln(x))
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn ln(self) -> Self {
     const_f32_as_f32x8!(HALF, 0.5);
     const_f32_as_f32x8!(P0, 3.3333331174E-1);
@@ -1219,7 +1209,6 @@ impl f32x8 {
 
   #[inline]
   #[must_use]
-  #[allow(non_upper_case_globals)]
   pub fn pow_f32x8(self, y: Self) -> Self {
     const_f32_as_f32x8!(ln2f_hi, 0.693359375);
     const_f32_as_f32x8!(ln2f_lo, -2.12194440e-4);
@@ -1330,7 +1319,7 @@ impl f32x8 {
     Self::pow_f32x8(self, f32x8::splat(y))
   }
 
-  /// Transpose matrix of 8x8 f32 matrix. Currently only accelerated on AVX.
+  /// Transpose matrix of 8x8 `f32` matrix. Currently only accelerated on AVX.
   #[must_use]
   #[inline]
   pub fn transpose(data: [f32x8; 8]) -> [f32x8; 8] {
@@ -1417,6 +1406,26 @@ impl f32x8 {
   #[inline]
   pub fn as_array_mut(&mut self) -> &mut [f32; 8] {
     cast_mut(self)
+  }
+
+  #[inline]
+  pub fn from_i32x8(v: i32x8) -> Self {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        Self { avx: convert_to_m256_from_i32_m256i(v.avx2) }
+      } else {
+        Self::new([
+            v.as_array_ref()[0] as f32,
+            v.as_array_ref()[1] as f32,
+            v.as_array_ref()[2] as f32,
+            v.as_array_ref()[3] as f32,
+            v.as_array_ref()[4] as f32,
+            v.as_array_ref()[5] as f32,
+            v.as_array_ref()[6] as f32,
+            v.as_array_ref()[7] as f32,
+          ])
+      }
+    }
   }
 }
 

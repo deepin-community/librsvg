@@ -11,10 +11,15 @@
 
 [package]
 edition = "2018"
-rust-version = "1.56"
+rust-version = "1.61"
 name = "wide"
-version = "0.7.15"
+version = "0.7.30"
 authors = ["Lokathor <zefria@gmail.com>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "A crate to help you go wide."
 readme = "README.md"
 keywords = [
@@ -29,6 +34,14 @@ categories = [
 license = "Zlib OR Apache-2.0 OR MIT"
 repository = "https://github.com/Lokathor/wide"
 
+[lib]
+name = "wide"
+path = "src/lib.rs"
+
+[[test]]
+name = "all_tests"
+path = "tests/all_tests/main.rs"
+
 [dependencies.bytemuck]
 version = "1"
 
@@ -36,6 +49,12 @@ version = "1"
 version = "0.7"
 features = ["bytemuck"]
 
+[dependencies.serde]
+version = "1"
+optional = true
+default-features = false
+
 [features]
 default = ["std"]
+serde = ["dep:serde"]
 std = []

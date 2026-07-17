@@ -1,9 +1,9 @@
 use super::header::Header;
 use crate::{
-    codecs::tga::header::ImageType, error::EncodingError, ColorType, ImageEncoder, ImageError,
-    ImageFormat, ImageResult,
+    codecs::tga::header::ImageType, error::EncodingError, ExtendedColorType, ImageEncoder,
+    ImageError, ImageFormat, ImageResult,
 };
-use std::{convert::TryFrom, error, fmt, io::Write};
+use std::{error, fmt, io::Write};
 
 /// Errors that can occur during encoding and saving of a TGA image.
 #[derive(Debug, Copy, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,10 +18,8 @@ enum EncoderError {
 impl fmt::Display for EncoderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            EncoderError::WidthInvalid(s) => f.write_fmt(format_args!("Invalid TGA width: {}", s)),
-            EncoderError::HeightInvalid(s) => {
-                f.write_fmt(format_args!("Invalid TGA height: {}", s))
-            }
+            EncoderError::WidthInvalid(s) => f.write_fmt(format_args!("Invalid TGA width: {s}")),
+            EncoderError::HeightInvalid(s) => f.write_fmt(format_args!("Invalid TGA height: {s}")),
         }
     }
 }
@@ -85,10 +83,14 @@ impl<W: Write> TgaEncoder<W> {
     }
 
     /// Writes the run-length encoded buffer to the writer
-    fn run_length_encode(&mut self, image: &[u8], color_type: ColorType) -> ImageResult<()> {
+    fn run_length_encode(
+        &mut self,
+        image: &[u8],
+        color_type: ExtendedColorType,
+    ) -> ImageResult<()> {
         use PacketType::*;
 
-        let bytes_per_pixel = color_type.bytes_per_pixel();
+        let bytes_per_pixel = color_type.bits_per_pixel() / 8;
         let capacity_in_bytes = usize::from(MAX_RUN_LENGTH) * usize::from(bytes_per_pixel);
 
         // Buffer to temporarily store pixels
@@ -156,16 +158,20 @@ impl<W: Write> TgaEncoder<W> {
     /// # Panics
     ///
     /// Panics if `width * height * color_type.bytes_per_pixel() != data.len()`.
+    #[track_caller]
     pub fn encode(
         mut self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
+        let expected_buffer_len = color_type.buffer_size(width, height);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(color_type.bytes_per_pixel() as u64),
-            buf.len() as u64
+            expected_buffer_len,
+            buf.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            buf.len(),
         );
 
         // Validate dimensions.
@@ -187,10 +193,11 @@ impl<W: Write> TgaEncoder<W> {
                 // Write run-length encoded image data
 
                 match color_type {
-                    ColorType::Rgb8 | ColorType::Rgba8 => {
+                    ExtendedColorType::Rgb8 | ExtendedColorType::Rgba8 => {
                         let mut image = Vec::from(buf);
 
-                        for pixel in image.chunks_mut(usize::from(color_type.bytes_per_pixel())) {
+                        for pixel in image.chunks_mut(usize::from(color_type.bits_per_pixel() / 8))
+                        {
                             pixel.swap(0, 2);
                         }
 
@@ -205,10 +212,11 @@ impl<W: Write> TgaEncoder<W> {
                 // Write uncompressed image data
 
                 match color_type {
-                    ColorType::Rgb8 | ColorType::Rgba8 => {
+                    ExtendedColorType::Rgb8 | ExtendedColorType::Rgba8 => {
                         let mut image = Vec::from(buf);
 
-                        for pixel in image.chunks_mut(usize::from(color_type.bytes_per_pixel())) {
+                        for pixel in image.chunks_mut(usize::from(color_type.bits_per_pixel() / 8))
+                        {
                             pixel.swap(0, 2);
                         }
 
@@ -226,12 +234,13 @@ impl<W: Write> TgaEncoder<W> {
 }
 
 impl<W: Write> ImageEncoder for TgaEncoder<W> {
+    #[track_caller]
     fn write_image(
         self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
         self.encode(buf, width, height, color_type)
     }
@@ -240,7 +249,7 @@ impl<W: Write> ImageEncoder for TgaEncoder<W> {
 #[cfg(test)]
 mod tests {
     use super::{EncoderError, TgaEncoder};
-    use crate::{codecs::tga::TgaDecoder, ColorType, ImageDecoder, ImageError};
+    use crate::{codecs::tga::TgaDecoder, ExtendedColorType, ImageDecoder, ImageError};
     use std::{error::Error, io::Cursor};
 
     #[test]
@@ -254,7 +263,7 @@ mod tests {
         // Try to encode an image that is too large
         let mut encoded = Vec::new();
         let encoder = TgaEncoder::new(&mut encoded);
-        let result = encoder.encode(&img, dimension, 1, ColorType::L8);
+        let result = encoder.encode(&img, dimension, 1, ExtendedColorType::L8);
 
         match result {
             Err(ImageError::Encoding(err)) => {
@@ -284,7 +293,7 @@ mod tests {
         // Try to encode an image that is too large
         let mut encoded = Vec::new();
         let encoder = TgaEncoder::new(&mut encoded);
-        let result = encoder.encode(&img, 1, dimension, ColorType::L8);
+        let result = encoder.encode(&img, 1, dimension, ExtendedColorType::L8);
 
         match result {
             Err(ImageError::Encoding(err)) => {
@@ -311,7 +320,7 @@ mod tests {
             let mut encoded_data = Vec::new();
             let encoder = TgaEncoder::new(&mut encoded_data).disable_rle();
             encoder
-                .encode(&image, 5, 1, ColorType::Rgb8)
+                .encode(&image, 5, 1, ExtendedColorType::Rgb8)
                 .expect("could not encode image");
 
             encoded_data
@@ -321,7 +330,7 @@ mod tests {
             let mut encoded_data = Vec::new();
             let encoder = TgaEncoder::new(&mut encoded_data);
             encoder
-                .encode(&image, 5, 1, ColorType::Rgb8)
+                .encode(&image, 5, 1, ExtendedColorType::Rgb8)
                 .expect("could not encode image");
 
             encoded_data
@@ -333,7 +342,12 @@ mod tests {
     mod compressed {
         use super::*;
 
-        fn round_trip_image(image: &[u8], width: u32, height: u32, c: ColorType) -> Vec<u8> {
+        fn round_trip_image(
+            image: &[u8],
+            width: u32,
+            height: u32,
+            c: ExtendedColorType,
+        ) -> Vec<u8> {
             let mut encoded_data = Vec::new();
             {
                 let encoder = TgaEncoder::new(&mut encoded_data);
@@ -353,7 +367,7 @@ mod tests {
             let image = [
                 255, 255, 255, 0, 0, 0, 255, 255, 255, 255, 255, 255, 255, 255, 255,
             ];
-            let decoded = round_trip_image(&image, 5, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 5, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -361,7 +375,7 @@ mod tests {
         #[test]
         fn round_trip_gray() {
             let image = [0, 1, 2];
-            let decoded = round_trip_image(&image, 3, 1, ColorType::L8);
+            let decoded = round_trip_image(&image, 3, 1, ExtendedColorType::L8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -369,7 +383,7 @@ mod tests {
         #[test]
         fn round_trip_graya() {
             let image = [0, 1, 2, 3, 4, 5];
-            let decoded = round_trip_image(&image, 1, 3, ColorType::La8);
+            let decoded = round_trip_image(&image, 1, 3, ExtendedColorType::La8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -377,7 +391,7 @@ mod tests {
         #[test]
         fn round_trip_single_pixel_rgb() {
             let image = [0, 1, 2];
-            let decoded = round_trip_image(&image, 1, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 1, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -385,7 +399,7 @@ mod tests {
         #[test]
         fn round_trip_three_pixel_rgb() {
             let image = [0, 1, 2, 0, 1, 2, 0, 1, 2];
-            let decoded = round_trip_image(&image, 3, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 3, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -393,7 +407,7 @@ mod tests {
         #[test]
         fn round_trip_3px_rgb() {
             let image = [0; 3 * 3 * 3]; // 3x3 pixels, 3 bytes per pixel
-            let decoded = round_trip_image(&image, 3, 3, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 3, 3, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -401,7 +415,7 @@ mod tests {
         #[test]
         fn round_trip_different() {
             let image = [0, 1, 2, 0, 1, 3, 0, 1, 4];
-            let decoded = round_trip_image(&image, 3, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 3, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -409,7 +423,7 @@ mod tests {
         #[test]
         fn round_trip_different_2() {
             let image = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 4];
-            let decoded = round_trip_image(&image, 4, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 4, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -417,7 +431,7 @@ mod tests {
         #[test]
         fn round_trip_different_3() {
             let image = [0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 4, 0, 1, 2];
-            let decoded = round_trip_image(&image, 5, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 5, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -430,7 +444,7 @@ mod tests {
             let (width, height) = (image.width(), image.height());
             let image = image.as_rgb8().unwrap().to_vec();
 
-            let decoded = round_trip_image(&image, width, height, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, width, height, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -439,7 +453,12 @@ mod tests {
     mod uncompressed {
         use super::*;
 
-        fn round_trip_image(image: &[u8], width: u32, height: u32, c: ColorType) -> Vec<u8> {
+        fn round_trip_image(
+            image: &[u8],
+            width: u32,
+            height: u32,
+            c: ExtendedColorType,
+        ) -> Vec<u8> {
             let mut encoded_data = Vec::new();
             {
                 let encoder = TgaEncoder::new(&mut encoded_data).disable_rle();
@@ -458,7 +477,7 @@ mod tests {
         #[test]
         fn round_trip_single_pixel_rgb() {
             let image = [0, 1, 2];
-            let decoded = round_trip_image(&image, 1, 1, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 1, 1, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -466,7 +485,7 @@ mod tests {
         #[test]
         fn round_trip_single_pixel_rgba() {
             let image = [0, 1, 2, 3];
-            let decoded = round_trip_image(&image, 1, 1, ColorType::Rgba8);
+            let decoded = round_trip_image(&image, 1, 1, ExtendedColorType::Rgba8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -474,7 +493,7 @@ mod tests {
         #[test]
         fn round_trip_gray() {
             let image = [0, 1, 2];
-            let decoded = round_trip_image(&image, 3, 1, ColorType::L8);
+            let decoded = round_trip_image(&image, 3, 1, ExtendedColorType::L8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -482,7 +501,7 @@ mod tests {
         #[test]
         fn round_trip_graya() {
             let image = [0, 1, 2, 3, 4, 5];
-            let decoded = round_trip_image(&image, 1, 3, ColorType::La8);
+            let decoded = round_trip_image(&image, 1, 3, ExtendedColorType::La8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }
@@ -490,7 +509,7 @@ mod tests {
         #[test]
         fn round_trip_3px_rgb() {
             let image = [0; 3 * 3 * 3]; // 3x3 pixels, 3 bytes per pixel
-            let decoded = round_trip_image(&image, 3, 3, ColorType::Rgb8);
+            let decoded = round_trip_image(&image, 3, 3, ExtendedColorType::Rgb8);
             assert_eq!(decoded.len(), image.len());
             assert_eq!(decoded.as_slice(), image);
         }

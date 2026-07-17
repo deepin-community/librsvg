@@ -1,3 +1,125 @@
+librsvg (2.60.0+dfsg-1) unstable; urgency=medium
+
+  * New upstream release
+  * Update vendored Rust crates
+  * Update debian/source/include-binaries
+  * Update debian/README.source to mention cargo-vendor-filterer
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 19 Mar 2025 08:29:39 -0400
+
+librsvg (2.59.90+dfsg-2) unstable; urgency=medium
+
+  * Release to unstable
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 11 Feb 2025 19:31:31 -0500
+
+librsvg (2.59.90+dfsg-1) experimental; urgency=medium
+
+  * New upstream release
+  * Bump minimum meson
+  * Update debian/README.source
+  * Update missing-sources & include-binaries per debian/README.source
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 11 Feb 2025 07:46:32 -0500
+
+librsvg (2.59.2+dfsg-1) unstable; urgency=medium
+
+  * New upstream release (LP: #2089563)
+
+ -- Nathan Pratta Teodosio <nteodosio@ubuntu.com>  Tue, 26 Nov 2024 20:50:03 +0100
+
+librsvg (2.59.1+dfsg-1) unstable; urgency=medium
+
+  * New upstream release (LP: #2083259)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Mon, 30 Sep 2024 11:02:55 -0400
+
+librsvg (2.59.0+dfsg-3) unstable; urgency=medium
+
+  * Disable libavif feature in Ubuntu since it requires dav1d
+    which is in universe
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Sat, 14 Sep 2024 14:48:18 -0400
+
+librsvg (2.59.0+dfsg-2) unstable; urgency=medium
+
+  * Release to unstable (Closes: #1081578, #1067102)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 13 Sep 2024 19:02:00 -0400
+
+librsvg (2.59.0+dfsg-1) experimental; urgency=medium
+
+  * New upstream release
+  * Refresh patches
+  * Update Standards Version to 4.7.0
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Fri, 13 Sep 2024 08:38:05 -0400
+
+librsvg (2.58.94+dfsg-3) experimental; urgency=medium
+
+  * debian/.gitignore: Correctly override upstream .gitignore
+  * missing-sources: Add missing files now that gitignore is working correctly
+  * Apply .a workaround from gnome-snapshot
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 11 Sep 2024 11:28:52 -0400
+
+librsvg (2.58.94+dfsg-2) experimental; urgency=medium
+
+  * Revert "Temporarily disable new avif feature"
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 10 Sep 2024 14:38:16 -0400
+
+librsvg (2.58.94+dfsg-1) experimental; urgency=medium
+
+  [ Alessandro Astone ]
+  * New upstream release
+  * Refresh patches
+  * Update vendored crates
+  * Update ABI patch to correctly export the symbol
+
+  [ Jeremy Bícha ]
+  * Restore level 4 symbols checking
+
+ -- Alessandro Astone <alessandro.astone@canonical.com>  Wed, 04 Sep 2024 14:54:11 -0400
+
+librsvg (2.58.93+dfsg-5) experimental; urgency=medium
+
+  * Add Depends to librsvg2-dev: libpango1.0-dev, libxml2-dev
+    (Closes: #1079729) (LP: #2077918)
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Tue, 27 Aug 2024 08:37:43 -0400
+
+librsvg (2.58.93+dfsg-4) experimental; urgency=medium
+
+  * Temporarily disable new avif feature
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 21 Aug 2024 09:20:56 -0400
+
+librsvg (2.58.93+dfsg-3) experimental; urgency=medium
+
+  * Always build docs
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 15 Aug 2024 08:06:21 -0400
+
+librsvg (2.58.93+dfsg-2) experimental; urgency=medium
+
+  * Fix arch-independent build
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Thu, 15 Aug 2024 07:04:43 -0400
+
+librsvg (2.58.93+dfsg-1) experimental; urgency=medium
+
+  * New upstream release
+  * Build with meson
+  * Update missing-sources per debian/README.source
+  * Add Build-Depends: libdav1d-dev for new avif feature
+  * debian/librsvg2-2.symbols: Add new symbols
+  * Temporarily drop symbols checking to level 1
+  * Temporarily drop installed tests since they weren't included
+    in the meson port
+
+ -- Jeremy Bícha <jbicha@ubuntu.com>  Wed, 14 Aug 2024 23:33:57 -0400
+
 librsvg (2.58.0+dfsg-1) unstable; urgency=medium
 
   [ Jeremy Bícha ]

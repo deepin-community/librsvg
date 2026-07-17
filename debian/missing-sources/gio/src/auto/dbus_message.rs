@@ -6,7 +6,7 @@
 #[cfg_attr(docsrs, doc(cfg(unix)))]
 use crate::UnixFDList;
 use crate::{
-    DBusCapabilityFlags, DBusMessageByteOrder, DBusMessageFlags, DBusMessageHeaderField,
+    ffi, DBusCapabilityFlags, DBusMessageByteOrder, DBusMessageFlags, DBusMessageHeaderField,
     DBusMessageType,
 };
 use glib::{
@@ -158,6 +158,7 @@ impl DBusMessage {
 
     #[doc(alias = "g_dbus_message_get_locked")]
     #[doc(alias = "get_locked")]
+    #[doc(alias = "locked")]
     pub fn is_locked(&self) -> bool {
         unsafe { from_glib(ffi::g_dbus_message_get_locked(self.to_glib_none().0)) }
     }
@@ -450,7 +451,7 @@ impl DBusMessage {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::locked\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_locked_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),

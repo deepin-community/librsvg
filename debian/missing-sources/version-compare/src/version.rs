@@ -187,7 +187,7 @@ impl<'a> Version<'a> {
     /// assert_eq!(ver.part(1), Ok(Part::Number(2)));
     /// assert_eq!(ver.part(2), Ok(Part::Number(3)));
     /// ```
-    #[allow(clippy::result_map_unit_fn)]
+    #[allow(clippy::result_unit_err)]
     pub fn part(&self, index: usize) -> Result<Part<'a>, ()> {
         // Make sure the index is in-bound
         if index >= self.parts.len() {
@@ -216,7 +216,7 @@ impl<'a> Version<'a> {
         self.parts.as_slice()
     }
 
-    /// Compare this version to the given `other` version.
+    /// Compare this version to the given `other` version using the default `Manifest`.
     ///
     /// This method returns one of the following comparison operators:
     ///
@@ -245,11 +245,12 @@ impl<'a> Version<'a> {
         compare_iter(
             self.parts.iter().peekable(),
             other.borrow().parts.iter().peekable(),
+            self.manifest,
         )
     }
 
     /// Compare this version to the given `other` version,
-    /// and check whether the given comparison operator is valid.
+    /// and check whether the given comparison operator is valid using the default `Manifest`.
     ///
     /// All comparison operators can be used.
     ///
@@ -341,6 +342,15 @@ fn split_version_str<'a>(
         // Try to parse the value as an number
         match part.parse::<i32>() {
             Ok(number) => {
+                // For GNU ordering we parse numbers with leading zero as string
+                if number > 0
+                    && part.starts_with('0')
+                    && manifest.map(|m| m.gnu_ordering).unwrap_or(false)
+                {
+                    parts.push(Part::Text(part));
+                    continue;
+                }
+
                 // Push the number part to the vector
                 parts.push(Part::Number(number));
             }
@@ -397,66 +407,105 @@ fn split_version_str<'a>(
 fn compare_iter<'a>(
     mut iter: Peekable<Iter<Part<'a>>>,
     mut other_iter: Peekable<Iter<Part<'a>>>,
+    manifest: Option<&Manifest>,
 ) -> Cmp {
-    // Iterate through the parts of this version
-    let mut other_part: Option<&Part>;
-
     // Iterate over the iterator, without consuming it
     for part in &mut iter {
-        // Get the part for the other version
-        other_part = other_iter.next();
-
-        // If there are no parts left in the other version, try to determine the result
-        if other_part.is_none() {
-            // In the main version: if the current part is zero, continue to the next one
-            match part {
-                Part::Number(num) => {
-                    if *num == 0 {
-                        continue;
-                    }
-                }
-                Part::Text(_) => return Cmp::Lt,
+        match (part, other_iter.next()) {
+            // If we only have a zero on the lhs, continue
+            (Part::Number(lhs), None) if lhs == &0 => {
+                continue;
             }
 
-            // The main version is greater
-            return Cmp::Gt;
-        }
+            // If we only have text on the lhs, it is less
+            (Part::Text(_), None) => return Cmp::Lt,
 
-        // Match both parts as numbers to destruct their numerical values
-        if let Part::Number(num) = part {
-            if let Part::Number(other) = other_part.unwrap() {
-                // Compare the numbers
-                match num {
-                    n if n < other => return Cmp::Lt,
-                    n if n > other => return Cmp::Gt,
-                    _ => continue,
+            // If we have anything else on the lhs, it is greater
+            (_, None) => return Cmp::Gt,
+
+            // Compare numbers
+            (Part::Number(lhs), Some(Part::Number(rhs))) => match Cmp::from(lhs.cmp(rhs)) {
+                Cmp::Eq => {}
+                cmp => return cmp,
+            },
+
+            // Compare text
+            (Part::Text(lhs), Some(Part::Text(rhs))) => {
+                // Normalize case and compare text: "RC1" will be less than "RC2"
+                match Cmp::from(lhs.to_lowercase().cmp(&rhs.to_lowercase())) {
+                    Cmp::Eq => {}
+                    cmp => return cmp,
                 }
             }
-        }
-        // Match both parts as strings
-        else if let Part::Text(val) = part {
-            if let Part::Text(other_val) = other_part.unwrap() {
-                // normalize case
-                let (val_lwr, other_val_lwr) = (val.to_lowercase(), other_val.to_lowercase());
-                // compare text: for instance, "RC1" will be less than "RC2", so this works out.
-                #[allow(clippy::comparison_chain)]
-                if val_lwr < other_val_lwr {
-                    return Cmp::Lt;
-                } else if val_lwr > other_val_lwr {
-                    return Cmp::Gt;
+
+            // For GNU ordering we have a special number/text comparison
+            (lhs @ Part::Number(_), Some(rhs @ Part::Text(_)))
+            | (lhs @ Part::Text(_), Some(rhs @ Part::Number(_)))
+                if manifest.map(|m| m.gnu_ordering).unwrap_or(false) =>
+            {
+                match compare_gnu_number_text(lhs, rhs) {
+                    Some(Cmp::Eq) | None => {}
+                    Some(cmp) => return cmp,
                 }
             }
+
+            // TODO: decide what to do for other type combinations
+            _ => {}
         }
     }
 
     // Check whether we should iterate over the other iterator, if it has any items left
     match other_iter.peek() {
         // Compare based on the other iterator
-        Some(_) => compare_iter(other_iter, iter).flip(),
+        Some(_) => compare_iter(other_iter, iter, manifest).flip(),
 
         // Nothing more to iterate over, the versions should be equal
         None => Cmp::Eq,
     }
+}
+
+/// Special logic for comparing a number and text with GNU ordering.
+///
+/// Numbers should be ordered like this:
+///
+/// - 3
+/// - 04
+/// - 4
+// TODO: this is not efficient, find a better method
+fn compare_gnu_number_text(lhs: &Part, rhs: &Part) -> Option<Cmp> {
+    // Both values must be parsable as numbers
+    let lhs_num = match lhs {
+        Part::Number(n) => *n,
+        Part::Text(n) => n.parse().ok()?,
+    };
+    let rhs_num = match rhs {
+        Part::Number(n) => *n,
+        Part::Text(n) => n.parse().ok()?,
+    };
+
+    // Return ordering if numeric values are different
+    match lhs_num.cmp(&rhs_num).into() {
+        Cmp::Eq => {}
+        cmp => return Some(cmp),
+    }
+
+    // Either value must have a leading zero
+    if !matches!(lhs, Part::Text(t) if t.starts_with('0'))
+        && !matches!(rhs, Part::Text(t) if t.starts_with('0'))
+    {
+        return None;
+    }
+
+    let lhs = match lhs {
+        Part::Number(n) => format!("{}", n),
+        Part::Text(n) => n.to_string(),
+    };
+    let rhs = match rhs {
+        Part::Number(n) => format!("{}", n),
+        Part::Text(n) => n.to_string(),
+    };
+
+    Some(lhs.cmp(&rhs).into())
 }
 
 #[cfg_attr(tarpaulin, skip)]
@@ -589,7 +638,7 @@ mod tests {
             // Test for each test version with the manifest
             for version in VERSIONS {
                 // Create a version object, and count it's parts
-                let ver = Version::from_manifest(&version.0, &manifest);
+                let ver = Version::from_manifest(version.0, &manifest);
 
                 // Some versions might be none, because not all of the start with a number when the
                 // maximum depth is 1. A version string with only text isn't allowed,
@@ -617,9 +666,9 @@ mod tests {
         let mut manifest = Manifest::default();
 
         // Try this for true and false
-        for ignore in vec![true, false] {
+        for ignore in &[true, false] {
             // Set to ignore text
-            manifest.ignore_text = ignore;
+            manifest.ignore_text = *ignore;
 
             // Keep track whether any version passed with text
             let mut had_text = false;
@@ -627,21 +676,18 @@ mod tests {
             // Test each test version
             for version in VERSIONS {
                 // Create a version instance, and get it's parts
-                let ver = Version::from_manifest(&version.0, &manifest).unwrap();
+                let ver = Version::from_manifest(version.0, &manifest).unwrap();
 
                 // Loop through all version parts
                 for part in ver.parts() {
-                    match part {
-                        Part::Text(_) => {
-                            // Set the flag
-                            had_text = true;
+                    if let Part::Text(_) = part {
+                        // Set the flag
+                        had_text = true;
 
-                            // Break the loop if we already reached text when not ignored
-                            if !ignore {
-                                break;
-                            }
+                        // Break the loop if we already reached text when not ignored
+                        if !ignore {
+                            break;
                         }
-                        _ => {}
                     }
                 }
             }
@@ -656,8 +702,7 @@ mod tests {
         // Compare each version in the version set
         for entry in COMBIS {
             // Get both versions
-            let a = Version::from(entry.0).unwrap();
-            let b = Version::from(entry.1).unwrap();
+            let (a, b) = entry.versions();
 
             // Compare them
             assert_eq!(
@@ -674,10 +719,9 @@ mod tests {
     #[test]
     fn compare_to() {
         // Compare each version in the version set
-        for entry in COMBIS {
+        for entry in COMBIS.iter().filter(|c| c.3.is_none()) {
             // Get both versions
-            let a = Version::from(entry.0).unwrap();
-            let b = Version::from(entry.1).unwrap();
+            let (a, b) = entry.versions();
 
             // Test normally and inverse
             assert!(a.compare_to(&b, entry.2));
@@ -712,8 +756,7 @@ mod tests {
         // Compare each version in the version set
         for entry in COMBIS {
             // Get both versions
-            let a = Version::from(entry.0).unwrap();
-            let b = Version::from(entry.1).unwrap();
+            let (a, b) = entry.versions();
 
             // Compare and assert
             match entry.2 {
@@ -736,14 +779,10 @@ mod tests {
             }
 
             // Get both versions
-            let a = Version::from(entry.0).unwrap();
-            let b = Version::from(entry.1).unwrap();
+            let (a, b) = entry.versions();
 
             // Determine what the result should be
-            let result = match entry.2 {
-                Cmp::Eq => true,
-                _ => false,
-            };
+            let result = matches!(entry.2, Cmp::Eq);
 
             // Test
             assert_eq!(a == b, result);

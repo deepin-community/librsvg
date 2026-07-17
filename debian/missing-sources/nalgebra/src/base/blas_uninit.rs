@@ -11,18 +11,19 @@
 #[cfg(feature = "std")]
 use matrixmultiply;
 use num::{One, Zero};
-use simba::scalar::{ClosedAdd, ClosedMul};
+use simba::scalar::{ClosedAddAssign, ClosedMulAssign};
 #[cfg(feature = "std")]
-use std::mem;
+use std::{any::TypeId, mem};
 
 use crate::base::constraint::{
     AreMultipliable, DimEq, SameNumberOfColumns, SameNumberOfRows, ShapeConstraint,
 };
-use crate::base::dimension::{Dim, Dyn, U1};
+#[cfg(feature = "std")]
+use crate::base::dimension::Dyn;
+use crate::base::dimension::{Dim, U1};
 use crate::base::storage::{RawStorage, RawStorageMut};
 use crate::base::uninit::InitStatus;
 use crate::base::{Matrix, Scalar, Vector};
-use std::any::TypeId;
 
 // # Safety
 // The content of `y` must only contain values for which
@@ -40,7 +41,7 @@ unsafe fn array_axcpy<Status, T>(
     len: usize,
 ) where
     Status: InitStatus<T>,
-    T: Scalar + Zero + ClosedAdd + ClosedMul,
+    T: Scalar + Zero + ClosedAddAssign + ClosedMulAssign,
 {
     for i in 0..len {
         let y = Status::assume_init_mut(y.get_unchecked_mut(i * stride1));
@@ -60,7 +61,7 @@ fn array_axc<Status, T>(
     len: usize,
 ) where
     Status: InitStatus<T>,
-    T: Scalar + Zero + ClosedAdd + ClosedMul,
+    T: Scalar + Zero + ClosedAddAssign + ClosedMulAssign,
 {
     for i in 0..len {
         unsafe {
@@ -88,7 +89,7 @@ pub unsafe fn axcpy_uninit<Status, T, D1: Dim, D2: Dim, SA, SB>(
     c: T,
     b: T,
 ) where
-    T: Scalar + Zero + ClosedAdd + ClosedMul,
+    T: Scalar + Zero + ClosedAddAssign + ClosedMulAssign,
     SA: RawStorageMut<Status::Value, D1>,
     SB: RawStorage<T, D2>,
     ShapeConstraint: DimEq<D1, D2>,
@@ -128,7 +129,7 @@ pub unsafe fn gemv_uninit<Status, T, D1: Dim, R2: Dim, C2: Dim, D3: Dim, SA, SB,
     beta: T,
 ) where
     Status: InitStatus<T>,
-    T: Scalar + Zero + One + ClosedAdd + ClosedMul,
+    T: Scalar + Zero + One + ClosedAddAssign + ClosedMulAssign,
     SA: RawStorageMut<Status::Value, D1>,
     SB: RawStorage<T, R2, C2>,
     SC: RawStorage<T, D3>,
@@ -198,7 +199,7 @@ pub unsafe fn gemm_uninit<
     beta: T,
 ) where
     Status: InitStatus<T>,
-    T: Scalar + Zero + One + ClosedAdd + ClosedMul,
+    T: Scalar + Zero + One + ClosedAddAssign + ClosedMulAssign,
     SA: RawStorageMut<Status::Value, R1, C1>,
     SB: RawStorage<T, R2, C2>,
     SC: RawStorage<T, R3, C3>,

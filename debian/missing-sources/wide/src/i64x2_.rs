@@ -4,13 +4,13 @@ pick! {
   if #[cfg(target_feature="sse2")] {
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
     #[repr(C, align(16))]
-    pub struct i64x2 { sse: m128i }
+    pub struct i64x2 { pub(crate) sse: m128i }
   } else if #[cfg(target_feature="simd128")] {
     use core::arch::wasm32::*;
 
     #[derive(Clone, Copy)]
     #[repr(transparent)]
-    pub struct i64x2 { simd: v128 }
+    pub struct i64x2 { pub(crate) simd: v128 }
 
     impl Default for i64x2 {
       fn default() -> Self {
@@ -29,7 +29,7 @@ pick! {
     use core::arch::aarch64::*;
     #[repr(C)]
     #[derive(Copy, Clone)]
-    pub struct i64x2 { neon : int64x2_t }
+    pub struct i64x2 { pub(crate) neon : int64x2_t }
 
     impl Default for i64x2 {
       #[inline]
@@ -400,9 +400,109 @@ impl i64x2 {
 
   #[inline]
   #[must_use]
+  pub fn abs(self) -> Self {
+    pick! {
+      // x86 doesn't have this builtin
+      if #[cfg(target_feature="simd128")] {
+        Self { simd: i64x2_abs(self.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {Self { neon: vabsq_s64(self.neon) }}
+      } else {
+        let arr: [i64; 2] = cast(self);
+        cast(
+          [
+            arr[0].wrapping_abs(),
+            arr[1].wrapping_abs(),
+          ])
+      }
+    }
+  }
+
+  #[inline]
+  #[must_use]
+  pub fn unsigned_abs(self) -> u64x2 {
+    pick! {
+      // x86 doesn't have this builtin
+      if #[cfg(target_feature="simd128")] {
+        u64x2 { simd: i64x2_abs(self.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe {u64x2 { neon: vreinterpretq_u64_s64(vabsq_s64(self.neon)) }}
+      } else {
+        let arr: [i64; 2] = cast(self);
+        cast(
+          [
+            arr[0].unsigned_abs(),
+            arr[1].unsigned_abs(),
+          ])
+      }
+    }
+  }
+
+  #[inline]
+  #[must_use]
   pub fn round_float(self) -> f64x2 {
     let arr: [i64; 2] = cast(self);
     cast([arr[0] as f64, arr[1] as f64])
+  }
+
+  /// returns the bit mask for each high bit set in the vector with the lowest
+  /// lane being the lowest bit
+  #[inline]
+  #[must_use]
+  pub fn move_mask(self) -> i32 {
+    pick! {
+      if #[cfg(target_feature="sse")] {
+        // use f64 move_mask since it is the same size as i64
+        move_mask_m128d(cast(self.sse))
+      } else if #[cfg(target_feature="simd128")] {
+        i64x2_bitmask(self.simd) as i32
+      } else {
+        // nothing amazingly efficient for neon
+        let arr: [u64; 2] = cast(self);
+        (arr[0] >> 63 | ((arr[1] >> 62) & 2)) as i32
+      }
+    }
+  }
+
+  /// true if any high bits are set for any value in the vector
+  #[inline]
+  #[must_use]
+  pub fn any(self) -> bool {
+    pick! {
+      if #[cfg(target_feature="sse")] {
+        // use f64 move_mask since it is the same size as i64
+        move_mask_m128d(cast(self.sse)) != 0
+      } else if #[cfg(target_feature="simd128")] {
+        i64x2_bitmask(self.simd) != 0
+      } else {
+        let v : [u64;2] = cast(self);
+        ((v[0] | v[1]) & 0x8000000000000000) != 0
+      }
+    }
+  }
+
+  /// true if all high bits are set for every value in the vector
+  #[inline]
+  #[must_use]
+  pub fn all(self) -> bool {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        // use f64 move_mask since it is the same size as i64
+        move_mask_m128d(cast(self.sse)) == 0b11
+      }  else if #[cfg(target_feature="simd128")] {
+        i64x2_bitmask(self.simd) == 0b11
+      } else {
+        let v : [u64;2] = cast(self);
+        ((v[0] & v[1]) & 0x8000000000000000) == 0x8000000000000000
+      }
+    }
+  }
+
+  /// true if no high bits are set for any values of the vector
+  #[inline]
+  #[must_use]
+  pub fn none(self) -> bool {
+    !self.any()
   }
 
   #[inline]

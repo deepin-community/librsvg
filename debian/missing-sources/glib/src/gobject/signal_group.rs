@@ -3,6 +3,7 @@
 use std::mem::transmute;
 
 use crate::{
+    ffi, gobject_ffi,
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
     translate::*,
@@ -104,7 +105,7 @@ impl SignalGroup {
         connect_raw(
             self.as_ptr() as *mut _,
             b"bind\0".as_ptr() as *const _,
-            Some(transmute::<_, unsafe extern "C" fn()>(
+            Some(transmute::<*const (), unsafe extern "C" fn()>(
                 bind_trampoline::<F> as *const (),
             )),
             Box::into_raw(f),
@@ -123,7 +124,7 @@ impl SignalGroup {
         connect_raw(
             self.as_ptr() as *mut _,
             b"unbind\0".as_ptr() as *const _,
-            Some(transmute::<_, unsafe extern "C" fn()>(
+            Some(transmute::<*const (), unsafe extern "C" fn()>(
                 unbind_trampoline::<F> as *const (),
             )),
             Box::into_raw(f),
@@ -178,7 +179,6 @@ mod tests {
 
     use super::*;
     use crate as glib;
-    use crate::prelude::*;
 
     mod imp {
         use super::*;
@@ -223,18 +223,28 @@ mod tests {
         group.connect_closure(
             "sig-with-args",
             false,
-            glib::closure_local!(@watch obj, @strong store => move |o: &SignalObject, a: u32, b: &str| {
-                assert_eq!(o, obj);
-                store.replace(format!("a {a} b {b}"));
-            })
+            glib::closure_local!(
+                #[watch]
+                obj,
+                #[strong]
+                store,
+                move |o: &SignalObject, a: u32, b: &str| {
+                    assert_eq!(o, obj);
+                    store.replace(format!("a {a} b {b}"));
+                }
+            ),
         );
         group.connect_closure(
             "sig-with-ret",
             false,
-            glib::closure_local!(@watch obj => move |o: &SignalObject| -> &'static crate::GStr {
-                assert_eq!(o, obj);
-                crate::gstr!("Hello")
-            }),
+            glib::closure_local!(
+                #[watch]
+                obj,
+                move |o: &SignalObject| -> &'static crate::GStr {
+                    assert_eq!(o, obj);
+                    crate::gstr!("Hello")
+                }
+            ),
         );
         group.set_target(Some(&obj));
         obj.emit_by_name::<()>("sig-with-args", &[&5u32, &"World"]);

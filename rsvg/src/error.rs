@@ -121,7 +121,7 @@ impl fmt::Display for DefsLookupErrorKind {
 ///   "If a transform function causes the current transformation matrix of an
 ///   object to be non-invertible, the object and its content do not get
 ///   displayed."
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum InternalRenderingError {
     /// An error from the rendering backend.
     Rendering(String),
@@ -135,6 +135,8 @@ pub enum InternalRenderingError {
     /// the problematic element.
     InvalidTransform,
 
+    CircularReference(Node),
+
     /// Tried to reference an SVG element that does not exist.
     IdNotFound,
 
@@ -143,6 +145,9 @@ pub enum InternalRenderingError {
 
     /// Not enough memory was available for rendering.
     OutOfMemory(String),
+
+    /// The rendering was interrupted via a [`gio::Cancellable`].
+    Cancelled,
 }
 
 impl From<DefsLookupErrorKind> for InternalRenderingError {
@@ -166,9 +171,13 @@ impl fmt::Display for InternalRenderingError {
             InternalRenderingError::Rendering(ref s) => write!(f, "rendering error: {s}"),
             InternalRenderingError::LimitExceeded(ref l) => write!(f, "{l}"),
             InternalRenderingError::InvalidTransform => write!(f, "invalid transform"),
+            InternalRenderingError::CircularReference(ref c) => {
+                write!(f, "circular reference in element {c}")
+            }
             InternalRenderingError::IdNotFound => write!(f, "element id not found"),
             InternalRenderingError::InvalidId(ref s) => write!(f, "invalid id: {s:?}"),
             InternalRenderingError::OutOfMemory(ref s) => write!(f, "out of memory: {s}"),
+            InternalRenderingError::Cancelled => write!(f, "rendering cancelled"),
         }
     }
 }
@@ -471,6 +480,13 @@ pub enum ImplementationLimit {
     /// number of attributes that the SVG standard ascribes meaning to are
     /// lower than this limit.
     TooManyAttributes,
+
+    /// Document exceeded the maximum nesting level while rendering.
+    ///
+    /// Rendering is a recursive process, and there is a limit of how deep layers can
+    /// nest.  This is to avoid malicious SVGs which try to have layers that are nested
+    /// extremely deep, as this could cause stack exhaustion.
+    MaximumLayerNestingDepthExceeded,
 }
 
 impl error::Error for LoadingError {}
@@ -526,6 +542,12 @@ impl fmt::Display for ImplementationLimit {
                 f,
                 "cannot load more than {} XML attributes",
                 limits::MAX_LOADED_ATTRIBUTES
+            ),
+
+            ImplementationLimit::MaximumLayerNestingDepthExceeded => write!(
+                f,
+                "maximum depth of {} nested layers has been exceeded",
+                limits::MAX_LAYER_NESTING_DEPTH,
             ),
         }
     }

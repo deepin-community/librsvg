@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{AsyncResult, Cancellable, FilterInputStream, InputStream, Seekable};
+use crate::{ffi, AsyncResult, Cancellable, FilterInputStream, InputStream, Seekable};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -208,6 +208,7 @@ pub trait BufferedInputStreamExt: IsA<BufferedInputStream> + sealed::Sealed + 's
 
     #[doc(alias = "g_buffered_input_stream_get_buffer_size")]
     #[doc(alias = "get_buffer_size")]
+    #[doc(alias = "buffer-size")]
     fn buffer_size(&self) -> usize {
         unsafe { ffi::g_buffered_input_stream_get_buffer_size(self.as_ref().to_glib_none().0) }
     }
@@ -245,6 +246,7 @@ pub trait BufferedInputStreamExt: IsA<BufferedInputStream> + sealed::Sealed + 's
     }
 
     #[doc(alias = "g_buffered_input_stream_set_buffer_size")]
+    #[doc(alias = "buffer-size")]
     fn set_buffer_size(&self, size: usize) {
         unsafe {
             ffi::g_buffered_input_stream_set_buffer_size(self.as_ref().to_glib_none().0, size);
@@ -269,7 +271,7 @@ pub trait BufferedInputStreamExt: IsA<BufferedInputStream> + sealed::Sealed + 's
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::buffer-size\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_buffer_size_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

@@ -1,7 +1,7 @@
 // Take a look at the license at the top of the repository in the LICENSE file.
 
 // rustdoc-stripper-ignore-next
-//! Traits intended for subclassing [`PixbufAnimationIter`](crate::PixbufAnimationIter).
+//! Traits intended for subclassing [`PixbufAnimationIter`].
 
 use std::{
     sync::OnceLock,
@@ -10,7 +10,7 @@ use std::{
 
 use glib::{prelude::*, subclass::prelude::*, translate::*};
 
-use crate::{Pixbuf, PixbufAnimationIter};
+use crate::{ffi, Pixbuf, PixbufAnimationIter};
 
 pub trait PixbufAnimationIterImpl: ObjectImpl {
     // rustdoc-stripper-ignore-next

@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{Converter, FileInfo, ZlibCompressorFormat};
+use crate::{ffi, Converter, FileInfo, ZlibCompressorFormat};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -27,6 +27,7 @@ impl ZlibDecompressor {
 
     #[doc(alias = "g_zlib_decompressor_get_file_info")]
     #[doc(alias = "get_file_info")]
+    #[doc(alias = "file-info")]
     pub fn file_info(&self) -> Option<FileInfo> {
         unsafe {
             from_glib_none(ffi::g_zlib_decompressor_get_file_info(
@@ -54,7 +55,7 @@ impl ZlibDecompressor {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::file-info\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_file_info_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),

@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{MenuAttributeIter, MenuLinkIter};
+use crate::{ffi, MenuAttributeIter, MenuLinkIter};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -119,9 +119,9 @@ pub trait MenuModelExt: IsA<MenuModel> + sealed::Sealed + 'static {
             F: Fn(&P, i32, i32, i32) + 'static,
         >(
             this: *mut ffi::GMenuModel,
-            position: libc::c_int,
-            removed: libc::c_int,
-            added: libc::c_int,
+            position: std::ffi::c_int,
+            removed: std::ffi::c_int,
+            added: std::ffi::c_int,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -137,7 +137,7 @@ pub trait MenuModelExt: IsA<MenuModel> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"items-changed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     items_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

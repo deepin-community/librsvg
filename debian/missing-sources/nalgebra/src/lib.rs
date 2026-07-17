@@ -27,7 +27,7 @@ explicitly, and call free-functions using the `na::` prefix:
 
 ```
 #[macro_use]
-extern crate approx; // For the macro relative_eq!
+extern crate approx; // For the macro assert_relative_eq!
 extern crate nalgebra as na;
 use na::{Vector3, Rotation3};
 
@@ -36,8 +36,8 @@ fn main() {
     let angle = 1.57;
     let b     = Rotation3::from_axis_angle(&axis, angle);
 
-    relative_eq!(b.axis().unwrap(), axis);
-    relative_eq!(b.angle(), angle);
+    assert_relative_eq!(b.axis().unwrap(), axis);
+    assert_relative_eq!(b.angle(), angle);
 }
 ```
 
@@ -155,7 +155,7 @@ pub use crate::sparse::*;
 pub use base as core;
 
 #[cfg(feature = "macros")]
-pub use nalgebra_macros::{dmatrix, dvector, matrix, point, vector};
+pub use nalgebra_macros::{dmatrix, dvector, matrix, point, stack, vector};
 
 use simba::scalar::SupersetOf;
 use std::cmp::{self, Ordering, PartialOrd};
@@ -165,7 +165,8 @@ use num::{One, Signed, Zero};
 use base::allocator::Allocator;
 pub use num_complex::Complex;
 pub use simba::scalar::{
-    ClosedAdd, ClosedDiv, ClosedMul, ClosedSub, ComplexField, Field, RealField,
+    ClosedAddAssign, ClosedDivAssign, ClosedMulAssign, ClosedSubAssign, ComplexField, Field,
+    RealField,
 };
 pub use simba::simd::{SimdBool, SimdComplexField, SimdPartialOrd, SimdRealField, SimdValue};
 
@@ -173,8 +174,8 @@ pub use simba::simd::{SimdBool, SimdComplexField, SimdPartialOrd, SimdRealField,
 ///
 /// # See also:
 ///
-/// * [`origin`](../nalgebra/fn.origin.html)
-/// * [`zero`](fn.zero.html)
+/// * [`origin()`](crate::OPoint::origin)
+/// * [`zero()`]
 #[inline]
 pub fn one<T: One>() -> T {
     T::one()
@@ -184,8 +185,8 @@ pub fn one<T: One>() -> T {
 ///
 /// # See also:
 ///
-/// * [`one`](fn.one.html)
-/// * [`origin`](../nalgebra/fn.origin.html)
+/// * [`one()`]
+/// * [`origin()`](crate::OPoint::origin)
 #[inline]
 pub fn zero<T: Zero>() -> T {
     T::zero()
@@ -206,7 +207,7 @@ pub fn zero<T: Zero>() -> T {
 #[inline]
 pub fn wrap<T>(mut val: T, min: T, max: T) -> T
 where
-    T: Copy + PartialOrd + ClosedAdd + ClosedSub,
+    T: Copy + PartialOrd + ClosedAddAssign + ClosedSubAssign,
 {
     assert!(min < max, "Invalid wrapping bounds.");
     let width = max - min;
@@ -262,7 +263,7 @@ pub fn min<T: Ord>(a: T, b: T) -> T {
 
 /// The absolute value of `a`.
 ///
-/// Deprecated: Use [`Matrix::abs`] or [`ComplexField::abs`] instead.
+/// Deprecated: Use [`Matrix::abs()`] or [`ComplexField::abs()`] instead.
 #[deprecated(note = "use the inherent method `Matrix::abs` or `ComplexField::abs` instead")]
 #[inline]
 pub fn abs<T: Signed>(a: &T) -> T {
@@ -275,7 +276,7 @@ pub fn abs<T: Signed>(a: &T) -> T {
 pub fn inf<T, R: Dim, C: Dim>(a: &OMatrix<T, R, C>, b: &OMatrix<T, R, C>) -> OMatrix<T, R, C>
 where
     T: Scalar + SimdPartialOrd,
-    DefaultAllocator: Allocator<T, R, C>,
+    DefaultAllocator: Allocator<R, C>,
 {
     a.inf(b)
 }
@@ -286,7 +287,7 @@ where
 pub fn sup<T, R: Dim, C: Dim>(a: &OMatrix<T, R, C>, b: &OMatrix<T, R, C>) -> OMatrix<T, R, C>
 where
     T: Scalar + SimdPartialOrd,
-    DefaultAllocator: Allocator<T, R, C>,
+    DefaultAllocator: Allocator<R, C>,
 {
     a.sup(b)
 }
@@ -300,7 +301,7 @@ pub fn inf_sup<T, R: Dim, C: Dim>(
 ) -> (OMatrix<T, R, C>, OMatrix<T, R, C>)
 where
     T: Scalar + SimdPartialOrd,
-    DefaultAllocator: Allocator<T, R, C>,
+    DefaultAllocator: Allocator<R, C>,
 {
     a.inf_sup(b)
 }
@@ -400,8 +401,8 @@ pub fn partial_sort2<'a, T: PartialOrd>(a: &'a T, b: &'a T) -> Option<(&'a T, &'
 ///
 /// # See also:
 ///
-/// * [distance](fn.distance.html)
-/// * [`distance_squared`](fn.distance_squared.html)
+/// * [`distance()`]
+/// * [`distance_squared()`]
 #[inline]
 pub fn center<T: SimdComplexField, const D: usize>(
     p1: &Point<T, D>,
@@ -414,8 +415,8 @@ pub fn center<T: SimdComplexField, const D: usize>(
 ///
 /// # See also:
 ///
-/// * [center](fn.center.html)
-/// * [`distance_squared`](fn.distance_squared.html)
+/// * [`center()`]
+/// * [`distance_squared()`]
 #[inline]
 pub fn distance<T: SimdComplexField, const D: usize>(
     p1: &Point<T, D>,
@@ -428,8 +429,8 @@ pub fn distance<T: SimdComplexField, const D: usize>(
 ///
 /// # See also:
 ///
-/// * [center](fn.center.html)
-/// * [distance](fn.distance.html)
+/// * [`center()`]
+/// * [`distance()`]
 #[inline]
 pub fn distance_squared<T: SimdComplexField, const D: usize>(
     p1: &Point<T, D>,
@@ -443,15 +444,15 @@ pub fn distance_squared<T: SimdComplexField, const D: usize>(
  */
 /// Converts an object from one type to an equivalent or more general one.
 ///
-/// See also [`try_convert`](fn.try_convert.html) for conversion to more specific types.
+/// See also [`try_convert()`] for conversion to more specific types.
 ///
 /// # See also:
 ///
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert`](fn.try_convert.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert_ref()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`is_convertible()`]
+/// * [`try_convert()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn convert<From, To: SupersetOf<From>>(t: From) -> To {
     To::from_subset(&t)
@@ -459,46 +460,46 @@ pub fn convert<From, To: SupersetOf<From>>(t: From) -> To {
 
 /// Attempts to convert an object to a more specific one.
 ///
-/// See also [`convert`](fn.convert.html) for conversion to more general types.
+/// See also [`convert()`] for conversion to more general types.
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert()`]
+/// * [`convert_ref()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`is_convertible()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn try_convert<From: SupersetOf<To>, To>(t: From) -> Option<To> {
     t.to_subset()
 }
 
-/// Indicates if [`try_convert`](fn.try_convert.html) will succeed without
+/// Indicates if [`try_convert()`] will succeed without
 /// actually performing the conversion.
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`try_convert`](fn.try_convert.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert()`]
+/// * [`convert_ref()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`try_convert()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn is_convertible<From: SupersetOf<To>, To>(t: &From) -> bool {
     t.is_in_subset()
 }
 
-/// Use with care! Same as [`try_convert`](fn.try_convert.html) but
+/// Use with care! Same as [`try_convert()`] but
 /// without any property checks.
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert`](fn.try_convert.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert()`]
+/// * [`convert_ref()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`is_convertible()`]
+/// * [`try_convert()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn convert_unchecked<From: SupersetOf<To>, To>(t: From) -> To {
     t.to_subset_unchecked()
@@ -508,11 +509,11 @@ pub fn convert_unchecked<From: SupersetOf<To>, To>(t: From) -> To {
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert`](fn.try_convert.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`is_convertible()`]
+/// * [`try_convert()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn convert_ref<From, To: SupersetOf<From>>(t: &From) -> To {
     To::from_subset(t)
@@ -522,26 +523,26 @@ pub fn convert_ref<From, To: SupersetOf<From>>(t: &From) -> To {
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`convert_ref_unchecked`](fn.convert_ref_unchecked.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert`](fn.try_convert.html)
+/// * [`convert()`]
+/// * [`convert_ref()`]
+/// * [`convert_ref_unchecked()`]
+/// * [`is_convertible()`]
+/// * [`try_convert()`]
 #[inline]
 pub fn try_convert_ref<From: SupersetOf<To>, To>(t: &From) -> Option<To> {
     t.to_subset()
 }
 
-/// Use with care! Same as [`try_convert`](fn.try_convert.html) but
+/// Use with care! Same as [`try_convert()`] but
 /// without any property checks.
 ///
 /// # See also:
 ///
-/// * [convert](fn.convert.html)
-/// * [`convert_ref`](fn.convert_ref.html)
-/// * [`is_convertible`](../nalgebra/fn.is_convertible.html)
-/// * [`try_convert`](fn.try_convert.html)
-/// * [`try_convert_ref`](fn.try_convert_ref.html)
+/// * [`convert()`]
+/// * [`convert_ref()`]
+/// * [`is_convertible()`]
+/// * [`try_convert()`]
+/// * [`try_convert_ref()`]
 #[inline]
 pub fn convert_ref_unchecked<From: SupersetOf<To>, To>(t: &From) -> To {
     t.to_subset_unchecked()

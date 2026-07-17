@@ -55,7 +55,6 @@ use simba::scalar::{ClosedNeg, RealField};
     )
 )]
 #[cfg_attr(feature = "rkyv-serialize", derive(bytecheck::CheckBytes))]
-#[cfg_attr(feature = "cuda", derive(cust_core::DeviceCopy))]
 pub struct DualQuaternion<T> {
     /// The real component of the quaternion
     pub real: Quaternion<T>,
@@ -97,7 +96,7 @@ where
     ///
     /// let dq_normalized = dq.normalize();
     ///
-    /// relative_eq!(dq_normalized.real.norm(), 1.0);
+    /// assert_relative_eq!(dq_normalized.real.norm(), 1.0);
     /// ```
     #[inline]
     #[must_use = "Did you mean to use normalize_mut()?"]
@@ -122,7 +121,7 @@ where
     ///
     /// dq.normalize_mut();
     ///
-    /// relative_eq!(dq.real.norm(), 1.0);
+    /// assert_relative_eq!(dq.real.norm(), 1.0);
     /// ```
     #[inline]
     pub fn normalize_mut(&mut self) -> T {
@@ -320,7 +319,8 @@ where
 }
 
 impl<T: RealField> DualQuaternion<T> {
-    fn to_vector(self) -> OVector<T, U8> {
+    #[allow(clippy::wrong_self_convention)]
+    fn to_vector(&self) -> OVector<T, U8> {
         self.as_ref().clone().into()
     }
 }
@@ -335,9 +335,9 @@ impl<T: RealField + AbsDiffEq<Epsilon = T>> AbsDiffEq for DualQuaternion<T> {
 
     #[inline]
     fn abs_diff_eq(&self, other: &Self, epsilon: Self::Epsilon) -> bool {
-        self.clone().to_vector().abs_diff_eq(&other.clone().to_vector(), epsilon.clone()) ||
+        self.to_vector().abs_diff_eq(&other.to_vector(), epsilon.clone()) ||
         // Account for the double-covering of S², i.e. q = -q
-        self.clone().to_vector().iter().zip(other.clone().to_vector().iter()).all(|(a, b)| a.abs_diff_eq(&-b.clone(), epsilon.clone()))
+        self.to_vector().iter().zip(other.to_vector().iter()).all(|(a, b)| a.abs_diff_eq(&-b.clone(), epsilon.clone()))
     }
 }
 
@@ -354,9 +354,9 @@ impl<T: RealField + RelativeEq<Epsilon = T>> RelativeEq for DualQuaternion<T> {
         epsilon: Self::Epsilon,
         max_relative: Self::Epsilon,
     ) -> bool {
-        self.clone().to_vector().relative_eq(&other.clone().to_vector(), epsilon.clone(), max_relative.clone()) ||
+        self.to_vector().relative_eq(&other.to_vector(), epsilon.clone(), max_relative.clone()) ||
         // Account for the double-covering of S², i.e. q = -q
-        self.clone().to_vector().iter().zip(other.clone().to_vector().iter()).all(|(a, b)| a.relative_eq(&-b.clone(), epsilon.clone(), max_relative.clone()))
+        self.to_vector().iter().zip(other.to_vector().iter()).all(|(a, b)| a.relative_eq(&-b.clone(), epsilon.clone(), max_relative.clone()))
     }
 }
 
@@ -368,9 +368,9 @@ impl<T: RealField + UlpsEq<Epsilon = T>> UlpsEq for DualQuaternion<T> {
 
     #[inline]
     fn ulps_eq(&self, other: &Self, epsilon: Self::Epsilon, max_ulps: u32) -> bool {
-        self.clone().to_vector().ulps_eq(&other.clone().to_vector(), epsilon.clone(), max_ulps) ||
+        self.to_vector().ulps_eq(&other.to_vector(), epsilon.clone(), max_ulps) ||
         // Account for the double-covering of S², i.e. q = -q.
-        self.clone().to_vector().iter().zip(other.clone().to_vector().iter()).all(|(a, b)| a.ulps_eq(&-b.clone(), epsilon.clone(), max_ulps))
+        self.to_vector().iter().zip(other.to_vector().iter()).all(|(a, b)| a.ulps_eq(&-b.clone(), epsilon.clone(), max_ulps))
     }
 }
 
@@ -656,8 +656,7 @@ where
     /// * `other`: the second quaternion to interpolate toward.
     /// * `t`: the interpolation parameter. Should be between 0 and 1.
     /// * `epsilon`: the value below which the sinus of the angle separating
-    ///   both quaternion
-    /// must be to return `None`.
+    ///   both quaternion must be to return `None`.
     #[inline]
     #[must_use]
     pub fn try_sclerp(&self, other: &Self, t: T, epsilon: T) -> Option<Self>

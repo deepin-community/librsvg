@@ -12,8 +12,13 @@
 [package]
 edition = "2018"
 name = "simba"
-version = "0.8.1"
+version = "0.9.0"
 authors = ["sebcrozet <developer@crozet.re>"]
+build = false
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "SIMD algebra for Rust"
 documentation = "https://docs.rs/simba"
 readme = "README.md"
@@ -34,19 +39,15 @@ repository = "https://github.com/dimforge/simba"
 [package.metadata.docs.rs]
 all-features = true
 
+[lib]
+name = "simba"
+path = "src/lib.rs"
+
 [dependencies.approx]
 version = "0.5"
 default-features = false
 
 [dependencies.cordic]
-version = "0.1"
-optional = true
-
-[dependencies.cuda_std]
-version = "0.2"
-optional = true
-
-[dependencies.cust_core]
 version = "0.1"
 optional = true
 
@@ -72,12 +73,6 @@ default-features = false
 version = "0.2.11"
 default-features = false
 
-[dependencies.packed_simd]
-version = "0.3"
-features = ["into_bits"]
-optional = true
-package = "packed_simd_2"
-
 [dependencies.paste]
 version = "1.0"
 
@@ -100,16 +95,13 @@ optional = true
 default-features = false
 
 [features]
-cuda = [
-    "cuda_std",
-    "cust_core",
-]
 default = ["std"]
 libm = ["num-traits/libm"]
 partial_fixed_point_support = [
     "fixed",
     "cordic",
 ]
+portable_simd = ["std"]
 rkyv-serialize = ["rkyv"]
 serde_serialize = [
     "serde",

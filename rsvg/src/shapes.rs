@@ -7,13 +7,14 @@ use std::ops::Deref;
 use std::rc::Rc;
 
 use crate::bbox::BoundingBox;
+use crate::cairo_path::validate_path;
 use crate::document::AcquiredNodes;
 use crate::drawing_ctx::{DrawingCtx, Viewport};
 use crate::element::{set_attribute, ElementTrait};
 use crate::error::*;
 use crate::iri::Iri;
 use crate::is_element_of_type;
-use crate::layout::{Layer, LayerKind, Marker, Shape, StackingContext, Stroke};
+use crate::layout::{self, Layer, LayerKind, Marker, Shape, StackingContext, Stroke};
 use crate::length::*;
 use crate::node::{CascadedValues, Node, NodeBorrow};
 use crate::parsers::{optional_comma, Parse, ParseValue};
@@ -50,9 +51,8 @@ fn draw_basic_shape(
     acquired_nodes: &mut AcquiredNodes<'_>,
     cascaded: &CascadedValues<'_>,
     viewport: &Viewport,
-    draw_ctx: &mut DrawingCtx,
-    clipping: bool,
-) -> Result<BoundingBox, InternalRenderingError> {
+    session: &Session,
+) -> Result<Layer, InternalRenderingError> {
     let values = cascaded.get();
     let params = NormalizeParams::new(values, viewport);
     let shape_def = basic_shape.make_shape(&params, values);
@@ -61,8 +61,6 @@ fn draw_basic_shape(
     let paint_order = values.paint_order();
 
     let stroke = Stroke::new(values, &params);
-
-    let session = draw_ctx.session();
 
     let stroke_paint = values.stroke().0.resolve(
         acquired_nodes,
@@ -118,21 +116,26 @@ fn draw_basic_shape(
         context_fill: fill_paint.clone(),
     };
 
-    let extents = draw_ctx.compute_path_extents(&shape_def.path)?;
-
     let normalize_values = NormalizeValues::new(values);
 
-    let stroke_paint = stroke_paint.to_user_space(&extents, viewport, &normalize_values);
-    let fill_paint = fill_paint.to_user_space(&extents, viewport, &normalize_values);
+    let path = validate_path(
+        &shape_def.path,
+        &stroke,
+        viewport,
+        &normalize_values,
+        &stroke_paint,
+        &fill_paint,
+    )?;
+
+    if let layout::Path::Invalid(ref reason) = path {
+        rsvg_log!(session, "will not render {node}: {reason}");
+    }
 
     let shape = Box::new(Shape {
-        path: shape_def.path,
-        extents,
+        path,
         is_visible,
         paint_order,
         stroke,
-        stroke_paint,
-        fill_paint,
         fill_rule,
         clip_rule,
         shape_rendering,
@@ -143,7 +146,7 @@ fn draw_basic_shape(
 
     let elt = node.borrow_element();
     let stacking_ctx = StackingContext::new(
-        draw_ctx.session(),
+        session,
         acquired_nodes,
         &elt,
         values.transform(),
@@ -151,16 +154,34 @@ fn draw_basic_shape(
         values,
     );
 
-    let layer = Layer {
+    Ok(Layer {
         kind: LayerKind::Shape(shape),
         stacking_ctx,
-    };
-
-    draw_ctx.draw_layer(&layer, acquired_nodes, clipping, viewport)
+    })
 }
 
 macro_rules! impl_draw {
     () => {
+        fn layout(
+            &self,
+            node: &Node,
+            acquired_nodes: &mut AcquiredNodes<'_>,
+            cascaded: &CascadedValues<'_>,
+            viewport: &Viewport,
+            draw_ctx: &mut DrawingCtx,
+            _clipping: bool,
+        ) -> Result<Option<Layer>, InternalRenderingError> {
+            draw_basic_shape(
+                self,
+                node,
+                acquired_nodes,
+                cascaded,
+                viewport,
+                &draw_ctx.session().clone(),
+            )
+            .map(Some)
+        }
+
         fn draw(
             &self,
             node: &Node,
@@ -170,15 +191,10 @@ macro_rules! impl_draw {
             draw_ctx: &mut DrawingCtx,
             clipping: bool,
         ) -> Result<BoundingBox, InternalRenderingError> {
-            draw_basic_shape(
-                self,
-                node,
-                acquired_nodes,
-                cascaded,
-                viewport,
-                draw_ctx,
-                clipping,
-            )
+            self.layout(node, acquired_nodes, cascaded, viewport, draw_ctx, clipping)
+                .and_then(|layer| {
+                    draw_ctx.draw_layer(layer.as_ref().unwrap(), acquired_nodes, clipping, viewport)
+                })
         }
     };
 }
