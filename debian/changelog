@@ -1,3 +1,12 @@
+librsvg (2.58.0+dfsg-1deepin1) unstable; urgency=medium
+
+  * fix(cve): CVE-2026-96889 (high) - (#1241): Fix use-after-free with
+    duplicate XML entities   Upstream:
+    https://gitlab.gnome.org/GNOME/librsvg/-
+    /commit/8a1b0cd319e9af2d1e9cf878081dd77f227a0504
+
+ -- deepin-ci-robot <packages@deepin.org>  Thu, 08 Oct 2026 15:51:11 +0800
+
 librsvg (2.58.0+dfsg-1) unstable; urgency=medium
 
   [ Jeremy Bícha ]
