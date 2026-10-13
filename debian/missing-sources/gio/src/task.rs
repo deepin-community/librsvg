@@ -6,12 +6,11 @@ use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
     translate::*,
-    value::ValueType,
 };
 
 use futures_channel::oneshot;
 
-use crate::{AsyncResult, Cancellable};
+use crate::{ffi, AsyncResult, Cancellable};
 
 glib::wrapper! {
     // rustdoc-stripper-ignore-next
@@ -221,7 +220,7 @@ macro_rules! task_impl {
                     connect_raw(
                         self.as_ptr() as *mut _,
                         b"notify::completed\0".as_ptr() as *const _,
-                        Some(transmute::<_, unsafe extern "C" fn()>(
+                        Some(transmute::<*const (), unsafe extern "C" fn()>(
                             notify_completed_trampoline::<V, F> as *const (),
                         )),
                         Box_::into_raw(f),
@@ -449,7 +448,7 @@ mod test {
 
     #[test]
     fn test_int_async_result() {
-        match run_async_local(|tx, l| {
+        let fut = run_async_local(|tx, l| {
             let cancellable = crate::Cancellable::new();
             let task = unsafe {
                 crate::LocalTask::new(
@@ -462,7 +461,9 @@ mod test {
                 )
             };
             task.return_result(Ok(100_i32));
-        }) {
+        });
+
+        match fut {
             Err(_) => panic!(),
             Ok(i) => assert_eq!(i, 100),
         }
@@ -514,7 +515,7 @@ mod test {
             }
         }
 
-        match run_async_local(|tx, l| {
+        let fut = run_async_local(|tx, l| {
             let cancellable = crate::Cancellable::new();
             let task = unsafe {
                 crate::LocalTask::new(
@@ -529,7 +530,9 @@ mod test {
             let my_object = MySimpleObject::new();
             my_object.set_size(100);
             task.return_result(Ok(my_object.upcast::<glib::Object>()));
-        }) {
+        });
+
+        match fut {
             Err(_) => panic!(),
             Ok(o) => {
                 let o = o.downcast::<MySimpleObject>().unwrap();
@@ -540,7 +543,7 @@ mod test {
 
     #[test]
     fn test_error() {
-        match run_async_local(|tx, l| {
+        let fut = run_async_local(|tx, l| {
             let cancellable = crate::Cancellable::new();
             let task = unsafe {
                 crate::LocalTask::new(
@@ -556,7 +559,9 @@ mod test {
                 crate::IOErrorEnum::WouldBlock,
                 "WouldBlock",
             )));
-        }) {
+        });
+
+        match fut {
             Err(e) => match e.kind().unwrap() {
                 crate::IOErrorEnum::WouldBlock => {}
                 _ => panic!(),
@@ -567,7 +572,7 @@ mod test {
 
     #[test]
     fn test_cancelled() {
-        match run_async_local(|tx, l| {
+        let fut = run_async_local(|tx, l| {
             let cancellable = crate::Cancellable::new();
             let task = unsafe {
                 crate::LocalTask::new(
@@ -581,7 +586,9 @@ mod test {
             };
             cancellable.cancel();
             task.return_error_if_cancelled();
-        }) {
+        });
+
+        match fut {
             Err(e) => match e.kind().unwrap() {
                 crate::IOErrorEnum::Cancelled => {}
                 _ => panic!(),

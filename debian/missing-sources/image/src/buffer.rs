@@ -10,7 +10,7 @@ use crate::color::{FromColor, Luma, LumaA, Rgb, Rgba};
 use crate::dynimage::{save_buffer, save_buffer_with_format, write_buffer_with_format};
 use crate::error::ImageResult;
 use crate::flat::{FlatSamples, SampleLayout};
-use crate::image::{GenericImage, GenericImageView, ImageEncoder, ImageFormat, ImageOutputFormat};
+use crate::image::{GenericImage, GenericImageView, ImageEncoder, ImageFormat};
 use crate::math::Rect;
 use crate::traits::{EncodableLayout, Pixel, PixelWithColorType};
 use crate::utils::expand_packed;
@@ -644,7 +644,7 @@ where
 /// image::imageops::overlay(&mut img, &on_top, 128, 128);
 /// ```
 ///
-/// Convert an RgbaImage to a GrayImage.
+/// Convert an `RgbaImage` to a `GrayImage`.
 ///
 /// ```no_run
 /// use image::{open, DynamicImage};
@@ -801,7 +801,7 @@ where
     /// the bounds will not overflow.
     fn check_image_fits(width: u32, height: u32, len: usize) -> bool {
         let checked_len = Self::image_buffer_len(width, height);
-        checked_len.map(|min_len| min_len <= len).unwrap_or(false)
+        checked_len.map_or(false, |min_len| min_len <= len)
     }
 
     fn image_buffer_len(width: u32, height: u32) -> Option<usize> {
@@ -980,7 +980,7 @@ where
     #[inline]
     #[track_caller]
     pub fn put_pixel(&mut self, x: u32, y: u32, pixel: P) {
-        *self.get_pixel_mut(x, y) = pixel
+        *self.get_pixel_mut(x, y) = pixel;
     }
 }
 
@@ -1044,15 +1044,11 @@ where
 {
     /// Writes the buffer to a writer in the specified format.
     ///
-    /// Assumes the writer is buffered. In most cases,
-    /// you should wrap your writer in a `BufWriter` for best performance.
-    ///
-    /// See [`ImageOutputFormat`](enum.ImageOutputFormat.html) for
-    /// supported types.
-    pub fn write_to<W, F>(&self, writer: &mut W, format: F) -> ImageResult<()>
+    /// Assumes the writer is buffered. In most cases, you should wrap your writer in a `BufWriter`
+    /// for best performance.
+    pub fn write_to<W>(&self, writer: &mut W, format: ImageFormat) -> ImageResult<()>
     where
         W: std::io::Write + std::io::Seek,
-        F: Into<ImageOutputFormat>,
         P: PixelWithColorType,
     {
         // This is valid as the subpixel is u8.
@@ -1161,6 +1157,12 @@ where
             _phantom: PhantomData,
         }
     }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.data.clone_from(&source.data);
+        self.width = source.width;
+        self.height = source.height;
+    }
 }
 
 impl<P, Container> GenericImageView for ImageBuffer<P, Container>
@@ -1172,10 +1174,6 @@ where
 
     fn dimensions(&self) -> (u32, u32) {
         self.dimensions()
-    }
-
-    fn bounds(&self) -> (u32, u32, u32, u32) {
-        (0, 0, self.width, self.height)
     }
 
     fn get_pixel(&self, x: u32, y: u32) -> P {
@@ -1200,7 +1198,7 @@ where
     }
 
     fn put_pixel(&mut self, x: u32, y: u32, pixel: P) {
-        *self.get_pixel_mut(x, y) = pixel
+        *self.get_pixel_mut(x, y) = pixel;
     }
 
     /// Puts a pixel at location (x, y), ignoring bounds checking.
@@ -1208,14 +1206,14 @@ where
     unsafe fn unsafe_put_pixel(&mut self, x: u32, y: u32, pixel: P) {
         let indices = self.pixel_indices_unchecked(x, y);
         let p = <P as Pixel>::from_slice_mut(self.data.get_unchecked_mut(indices));
-        *p = pixel
+        *p = pixel;
     }
 
     /// Put a pixel at location (x, y), taking into account alpha channels
     ///
     /// DEPRECATED: This method will be removed. Blend the pixel directly instead.
     fn blend_pixel(&mut self, x: u32, y: u32, p: P) {
-        self.get_pixel_mut(x, y).blend(&p)
+        self.get_pixel_mut(x, y).blend(&p);
     }
 
     fn copy_within(&mut self, source: Rect, x: u32, y: u32) -> bool {
@@ -1265,9 +1263,12 @@ where
 impl<P: Pixel> ImageBuffer<P, Vec<P::Subpixel>> {
     /// Creates a new image buffer based on a `Vec<P::Subpixel>`.
     ///
+    /// all the pixels of this image have a value of zero, regardless of the data type or number of channels.
+    ///
     /// # Panics
     ///
     /// Panics when the resulting image is larger than the maximum size of a vector.
+    #[must_use]
     pub fn new(width: u32, height: u32) -> ImageBuffer<P, Vec<P::Subpixel>> {
         let size = Self::image_buffer_len(width, height)
             .expect("Buffer length in `ImageBuffer::new` overflows usize");
@@ -1279,7 +1280,7 @@ impl<P: Pixel> ImageBuffer<P, Vec<P::Subpixel>> {
         }
     }
 
-    /// Constructs a new ImageBuffer by copying a pixel
+    /// Constructs a new `ImageBuffer` by copying a pixel
     ///
     /// # Panics
     ///
@@ -1287,12 +1288,12 @@ impl<P: Pixel> ImageBuffer<P, Vec<P::Subpixel>> {
     pub fn from_pixel(width: u32, height: u32, pixel: P) -> ImageBuffer<P, Vec<P::Subpixel>> {
         let mut buf = ImageBuffer::new(width, height);
         for p in buf.pixels_mut() {
-            *p = pixel
+            *p = pixel;
         }
         buf
     }
 
-    /// Constructs a new ImageBuffer by repeated application of the supplied function.
+    /// Constructs a new `ImageBuffer` by repeated application of the supplied function.
     ///
     /// The arguments to the function are the pixel's x and y coordinates.
     ///
@@ -1305,13 +1306,14 @@ impl<P: Pixel> ImageBuffer<P, Vec<P::Subpixel>> {
     {
         let mut buf = ImageBuffer::new(width, height);
         for (x, y, p) in buf.enumerate_pixels_mut() {
-            *p = f(x, y)
+            *p = f(x, y);
         }
         buf
     }
 
     /// Creates an image buffer out of an existing buffer.
     /// Returns None if the buffer is not big enough.
+    #[must_use]
     pub fn from_vec(
         width: u32,
         height: u32,
@@ -1322,6 +1324,7 @@ impl<P: Pixel> ImageBuffer<P, Vec<P::Subpixel>> {
 
     /// Consumes the image buffer and returns the underlying data
     /// as an owned buffer
+    #[must_use]
     pub fn into_vec(self) -> Vec<P::Subpixel> {
         self.into_raw()
     }
@@ -1341,6 +1344,7 @@ impl GrayImage {
     /// Expands a color palette by re-using the existing buffer.
     /// Assumes 8 bit per pixel. Uses an optionally transparent index to
     /// adjust it's alpha value accordingly.
+    #[must_use]
     pub fn expand_palette(
         self,
         palette: &[(u8, u8, u8)],
@@ -1397,7 +1401,7 @@ where
         let mut buffer: ImageBuffer<ToType, Vec<ToType::Subpixel>> =
             ImageBuffer::new(self.width, self.height);
         for (to, from) in buffer.pixels_mut().zip(self.pixels()) {
-            to.from_color(from)
+            to.from_color(from);
         }
         buffer
     }
@@ -1484,18 +1488,45 @@ impl From<DynamicImage> for Rgba32FImage {
 
 #[cfg(test)]
 mod test {
-    use super::{GrayImage, ImageBuffer, ImageOutputFormat, RgbImage};
+    use super::{GrayImage, ImageBuffer, RgbImage};
     use crate::math::Rect;
     use crate::GenericImage as _;
-    use crate::{color, Rgb};
+    use crate::ImageFormat;
+    use crate::{Luma, LumaA, Pixel, Rgb, Rgba};
+    use num_traits::Zero;
 
     #[test]
     /// Tests if image buffers from slices work
     fn slice_buffer() {
         let data = [0; 9];
-        let buf: ImageBuffer<color::Luma<u8>, _> = ImageBuffer::from_raw(3, 3, &data[..]).unwrap();
+        let buf: ImageBuffer<Luma<u8>, _> = ImageBuffer::from_raw(3, 3, &data[..]).unwrap();
         assert_eq!(&*buf, &data[..])
     }
+
+    macro_rules! new_buffer_zero_test {
+        ($test_name:ident, $pxt:ty) => {
+            #[test]
+            fn $test_name() {
+                let buffer = ImageBuffer::<$pxt, Vec<<$pxt as Pixel>::Subpixel>>::new(2, 2);
+                assert!(buffer
+                    .iter()
+                    .all(|p| *p == <$pxt as Pixel>::Subpixel::zero()));
+            }
+        };
+    }
+
+    new_buffer_zero_test!(luma_u8_zero_test, Luma<u8>);
+    new_buffer_zero_test!(luma_u16_zero_test, Luma<u16>);
+    new_buffer_zero_test!(luma_f32_zero_test, Luma<f32>);
+    new_buffer_zero_test!(luma_a_u8_zero_test, LumaA<u8>);
+    new_buffer_zero_test!(luma_a_u16_zero_test, LumaA<u16>);
+    new_buffer_zero_test!(luma_a_f32_zero_test, LumaA<f32>);
+    new_buffer_zero_test!(rgb_u8_zero_test, Rgb<u8>);
+    new_buffer_zero_test!(rgb_u16_zero_test, Rgb<u16>);
+    new_buffer_zero_test!(rgb_f32_zero_test, Rgb<f32>);
+    new_buffer_zero_test!(rgb_a_u8_zero_test, Rgba<u8>);
+    new_buffer_zero_test!(rgb_a_u16_zero_test, Rgba<u16>);
+    new_buffer_zero_test!(rgb_a_f32_zero_test, Rgba<f32>);
 
     #[test]
     fn get_pixel() {
@@ -1535,7 +1566,7 @@ mod test {
             let val = a.pixels_mut().next().unwrap();
             *val = Rgb([42, 0, 0]);
         }
-        assert_eq!(a.data[0], 42)
+        assert_eq!(a.data[0], 42);
     }
 
     #[test]
@@ -1676,9 +1707,10 @@ mod test {
     #[cfg(feature = "png")]
     fn write_to_with_large_buffer() {
         // A buffer of 1 pixel, padded to 4 bytes as would be common in, e.g. BMP.
+
         let img: GrayImage = ImageBuffer::from_raw(1, 1, vec![0u8; 4]).unwrap();
         let mut buffer = std::io::Cursor::new(vec![]);
-        assert!(img.write_to(&mut buffer, ImageOutputFormat::Png).is_ok());
+        assert!(img.write_to(&mut buffer, ImageFormat::Png).is_ok());
     }
 
     #[test]

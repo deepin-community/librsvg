@@ -21,7 +21,7 @@ impl<T: Scalar + Zero, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
     #[must_use]
     pub fn upper_triangle(&self) -> OMatrix<T, R, C>
     where
-        DefaultAllocator: Allocator<T, R, C>,
+        DefaultAllocator: Allocator<R, C>,
     {
         let mut res = self.clone_owned();
         res.fill_lower_triangle(T::zero(), 1);
@@ -34,7 +34,7 @@ impl<T: Scalar + Zero, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
     #[must_use]
     pub fn lower_triangle(&self) -> OMatrix<T, R, C>
     where
-        DefaultAllocator: Allocator<T, R, C>,
+        DefaultAllocator: Allocator<R, C>,
     {
         let mut res = self.clone_owned();
         res.fill_upper_triangle(T::zero(), 1);
@@ -52,7 +52,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
     where
         I: IntoIterator<Item = &'a usize>,
         I::IntoIter: ExactSizeIterator + Clone,
-        DefaultAllocator: Allocator<T, Dyn, C>,
+        DefaultAllocator: Allocator<Dyn, C>,
     {
         let irows = irows.into_iter();
         let ncols = self.shape_generic().1;
@@ -89,7 +89,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
     where
         I: IntoIterator<Item = &'a usize>,
         I::IntoIter: ExactSizeIterator,
-        DefaultAllocator: Allocator<T, R, Dyn>,
+        DefaultAllocator: Allocator<R, Dyn>,
     {
         let icols = icols.into_iter();
         let nrows = self.shape_generic().0;
@@ -236,7 +236,7 @@ impl<T, R: Dim, C: Dim, S: RawStorageMut<T, R, C>> Matrix<T, R, C, S> {
     /// * If `shift = 0` then the diagonal is overwritten as well.
     /// * If `shift = 1` then the diagonal is left untouched.
     /// * If `shift > 1`, then the diagonal and the first `shift - 1` subdiagonals are left
-    /// untouched.
+    ///   untouched.
     #[inline]
     pub fn fill_lower_triangle(&mut self, val: T, shift: usize)
     where
@@ -255,7 +255,7 @@ impl<T, R: Dim, C: Dim, S: RawStorageMut<T, R, C>> Matrix<T, R, C, S> {
     /// * If `shift = 0` then the diagonal is overwritten as well.
     /// * If `shift = 1` then the diagonal is left untouched.
     /// * If `shift > 1`, then the diagonal and the first `shift - 1` superdiagonals are left
-    /// untouched.
+    ///   untouched.
     #[inline]
     pub fn fill_upper_triangle(&mut self, val: T, shift: usize)
     where
@@ -598,7 +598,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
         if nremove.value() != 0 {
             unsafe {
                 compress_rows(
-                    &mut m.as_mut_slice(),
+                    m.as_mut_slice(),
                     nrows.value(),
                     ncols.value(),
                     i,
@@ -796,7 +796,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
 
         if ninsert.value() != 0 {
             extend_rows(
-                &mut res.as_mut_slice(),
+                res.as_mut_slice(),
                 nrows.value(),
                 ncols.value(),
                 i,
@@ -909,7 +909,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
             unsafe {
                 if new_nrows.value() < nrows {
                     compress_rows(
-                        &mut data.as_mut_slice(),
+                        data.as_mut_slice(),
                         nrows,
                         ncols,
                         new_nrows.value(),
@@ -923,7 +923,7 @@ impl<T: Scalar, R: Dim, C: Dim, S: Storage<T, R, C>> Matrix<T, R, C, S> {
                         new_nrows, new_ncols, data.data,
                     ));
                     extend_rows(
-                        &mut res.as_mut_slice(),
+                        res.as_mut_slice(),
                         nrows,
                         new_ncols.value(),
                         nrows,
@@ -1037,7 +1037,7 @@ impl<T: Scalar> OMatrix<T, Dyn, Dyn> {
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<T: Scalar, C: Dim> OMatrix<T, Dyn, C>
 where
-    DefaultAllocator: Allocator<T, Dyn, C>,
+    DefaultAllocator: Allocator<Dyn, C>,
 {
     /// Changes the number of rows of this matrix in-place.
     ///
@@ -1058,7 +1058,7 @@ where
 #[cfg(any(feature = "std", feature = "alloc"))]
 impl<T: Scalar, R: Dim> OMatrix<T, R, Dyn>
 where
-    DefaultAllocator: Allocator<T, R, Dyn>,
+    DefaultAllocator: Allocator<R, Dyn>,
 {
     /// Changes the number of column of this matrix in-place.
     ///

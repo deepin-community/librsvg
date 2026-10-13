@@ -6,7 +6,7 @@
 #[cfg_attr(docsrs, doc(cfg(unix)))]
 use crate::UnixFDList;
 use crate::{
-    AsyncInitable, AsyncResult, Cancellable, Credentials, DBusAuthObserver, DBusCallFlags,
+    ffi, AsyncInitable, AsyncResult, Cancellable, Credentials, DBusAuthObserver, DBusCallFlags,
     DBusCapabilityFlags, DBusConnectionFlags, DBusMessage, DBusSendMessageFlags, IOStream,
     Initable,
 };
@@ -584,6 +584,7 @@ impl DBusConnection {
 
     #[doc(alias = "g_dbus_connection_get_exit_on_close")]
     #[doc(alias = "get_exit_on_close")]
+    #[doc(alias = "exit-on-close")]
     pub fn exits_on_close(&self) -> bool {
         unsafe {
             from_glib(ffi::g_dbus_connection_get_exit_on_close(
@@ -630,6 +631,7 @@ impl DBusConnection {
 
     #[doc(alias = "g_dbus_connection_get_unique_name")]
     #[doc(alias = "get_unique_name")]
+    #[doc(alias = "unique-name")]
     pub fn unique_name(&self) -> Option<glib::GString> {
         unsafe {
             from_glib_none(ffi::g_dbus_connection_get_unique_name(
@@ -639,14 +641,10 @@ impl DBusConnection {
     }
 
     #[doc(alias = "g_dbus_connection_is_closed")]
+    #[doc(alias = "closed")]
     pub fn is_closed(&self) -> bool {
         unsafe { from_glib(ffi::g_dbus_connection_is_closed(self.to_glib_none().0)) }
     }
-
-    //#[doc(alias = "g_dbus_connection_register_object")]
-    //pub fn register_object(&self, object_path: &str, interface_info: &DBusInterfaceInfo, vtable: /*Ignored*/Option<&DBusInterfaceVTable>, user_data: /*Unimplemented*/Option<Basic: Pointer>) -> Result<(), glib::Error> {
-    //    unsafe { TODO: call ffi:g_dbus_connection_register_object() }
-    //}
 
     #[doc(alias = "g_dbus_connection_send_message")]
     pub fn send_message(
@@ -787,6 +785,7 @@ impl DBusConnection {
     }
 
     #[doc(alias = "g_dbus_connection_set_exit_on_close")]
+    #[doc(alias = "exit-on-close")]
     pub fn set_exit_on_close(&self, exit_on_close: bool) {
         unsafe {
             ffi::g_dbus_connection_set_exit_on_close(
@@ -803,7 +802,9 @@ impl DBusConnection {
         }
     }
 
-    pub fn get_property_flags(&self) -> DBusConnectionFlags {
+    #[cfg(not(feature = "v2_60"))]
+    #[cfg_attr(docsrs, doc(cfg(not(feature = "v2_60"))))]
+    pub fn flags(&self) -> DBusConnectionFlags {
         ObjectExt::property(self, "flags")
     }
 
@@ -992,7 +993,7 @@ impl DBusConnection {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"closed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     closed_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -1020,7 +1021,7 @@ impl DBusConnection {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::capabilities\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_capabilities_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -1048,7 +1049,7 @@ impl DBusConnection {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::closed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_closed_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -1076,7 +1077,7 @@ impl DBusConnection {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::exit-on-close\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_exit_on_close_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -1104,7 +1105,7 @@ impl DBusConnection {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::unique-name\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_unique_name_trampoline::<F> as *const (),
                 )),
                 Box_::into_raw(f),

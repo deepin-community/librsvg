@@ -49,8 +49,12 @@ unsafe impl Pod for usize {}
 unsafe impl Pod for isize {}
 unsafe impl Pod for u128 {}
 unsafe impl Pod for i128 {}
+#[cfg(feature = "nightly_float")]
+unsafe impl Pod for f16 {}
 unsafe impl Pod for f32 {}
 unsafe impl Pod for f64 {}
+#[cfg(feature = "nightly_float")]
+unsafe impl Pod for f128 {}
 unsafe impl<T: Pod> Pod for Wrapping<T> {}
 
 #[cfg(feature = "unsound_ptr_pod_impl")]
@@ -74,7 +78,7 @@ unsafe impl<T: 'static> PodInOption for NonNull<T> {}
 
 unsafe impl<T: ?Sized + 'static> Pod for PhantomData<T> {}
 unsafe impl Pod for PhantomPinned {}
-unsafe impl<T: Pod> Pod for ManuallyDrop<T> {}
+unsafe impl<T: Pod> Pod for core::mem::ManuallyDrop<T> {}
 
 // Note(Lokathor): MaybeUninit can NEVER be Pod.
 

@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::iter::Iterator;
 use std::time::Duration;
 
 use crate::error::ImageResult;
@@ -12,6 +11,7 @@ pub struct Frames<'a> {
 
 impl<'a> Frames<'a> {
     /// Creates a new `Frames` from an implementation specific iterator.
+    #[must_use]
     pub fn new(iterator: Box<dyn Iterator<Item = ImageResult<Frame>> + 'a>) -> Self {
         Frames { iterator }
     }
@@ -26,7 +26,7 @@ impl<'a> Frames<'a> {
     }
 }
 
-impl<'a> Iterator for Frames<'a> {
+impl Iterator for Frames<'_> {
     type Item = ImageResult<Frame>;
     fn next(&mut self) -> Option<ImageResult<Frame>> {
         self.iterator.next()
@@ -34,7 +34,6 @@ impl<'a> Iterator for Frames<'a> {
 }
 
 /// A single animation frame
-#[derive(Clone)]
 pub struct Frame {
     /// Delay between the frames in milliseconds
     delay: Delay,
@@ -45,6 +44,24 @@ pub struct Frame {
     buffer: RgbaImage,
 }
 
+impl Clone for Frame {
+    fn clone(&self) -> Self {
+        Self {
+            delay: self.delay,
+            left: self.left,
+            top: self.top,
+            buffer: self.buffer.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.delay = source.delay;
+        self.left = source.left;
+        self.top = source.top;
+        self.buffer.clone_from(&source.buffer);
+    }
+}
+
 /// The delay of a frame relative to the previous one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd)]
 pub struct Delay {
@@ -53,6 +70,7 @@ pub struct Delay {
 
 impl Frame {
     /// Constructs a new frame without any delay.
+    #[must_use]
     pub fn new(buffer: RgbaImage) -> Frame {
         Frame {
             delay: Delay::from_ratio(Ratio { numer: 0, denom: 1 }),
@@ -63,6 +81,7 @@ impl Frame {
     }
 
     /// Constructs a new frame
+    #[must_use]
     pub fn from_parts(buffer: RgbaImage, left: u32, top: u32, delay: Delay) -> Frame {
         Frame {
             delay,
@@ -73,11 +92,13 @@ impl Frame {
     }
 
     /// Delay of this frame
+    #[must_use]
     pub fn delay(&self) -> Delay {
         self.delay
     }
 
     /// Returns the image buffer
+    #[must_use]
     pub fn buffer(&self) -> &RgbaImage {
         &self.buffer
     }
@@ -88,16 +109,19 @@ impl Frame {
     }
 
     /// Returns the image buffer
+    #[must_use]
     pub fn into_buffer(self) -> RgbaImage {
         self.buffer
     }
 
     /// Returns the x offset
+    #[must_use]
     pub fn left(&self) -> u32 {
         self.left
     }
 
     /// Returns the y offset
+    #[must_use]
     pub fn top(&self) -> u32 {
         self.top
     }
@@ -112,6 +136,7 @@ impl Delay {
     /// use image::Delay;
     /// let delay_10ms = Delay::from_numer_denom_ms(10, 1);
     /// ```
+    #[must_use]
     pub fn from_numer_denom_ms(numerator: u32, denominator: u32) -> Self {
         Delay {
             ratio: Ratio::new(numerator, denominator),
@@ -132,6 +157,7 @@ impl Delay {
     /// let duration = Duration::from_millis(20);
     /// let delay = Delay::from_saturating_duration(duration);
     /// ```
+    #[must_use]
     pub fn from_saturating_duration(duration: Duration) -> Self {
         // A few notes: The largest number we can represent as a ratio is u32::MAX but we can
         // sometimes represent much smaller numbers.
@@ -141,7 +167,7 @@ impl Delay {
         // > `0 < b <= (u32::MAX + 1)/(millis + 1)`
         // Corollary: millis <= u32::MAX
 
-        const MILLIS_BOUND: u128 = u32::max_value() as u128;
+        const MILLIS_BOUND: u128 = u32::MAX as u128;
 
         let millis = duration.as_millis().min(MILLIS_BOUND);
         let submillis = (duration.as_nanos() % 1_000_000) as u32;
@@ -161,6 +187,7 @@ impl Delay {
     ///
     /// This is guaranteed to be an exact conversion if the `Delay` was previously created with the
     /// `from_numer_denom_ms` constructor.
+    #[must_use]
     pub fn numer_denom_ms(self) -> (u32, u32) {
         (self.ratio.numer, self.ratio.denom)
     }
@@ -293,7 +320,7 @@ impl Ratio {
     }
 
     #[inline]
-    pub(crate) fn to_integer(&self) -> u32 {
+    pub(crate) fn to_integer(self) -> u32 {
         self.numer / self.denom
     }
 }

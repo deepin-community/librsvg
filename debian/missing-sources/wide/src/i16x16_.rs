@@ -283,6 +283,24 @@ impl CmpLt for i16x16 {
   }
 }
 
+impl From<i8x16> for i16x16 {
+  /// widen with sign extend from i8 to i16
+  #[inline]
+  #[must_use]
+  fn from(i: i8x16) -> Self {
+    i16x16::from_i8x16(i)
+  }
+}
+
+impl From<u8x16> for i16x16 {
+  /// widen with zero extend from u8 to i16
+  #[inline]
+  #[must_use]
+  fn from(i: u8x16) -> Self {
+    cast(u16x16::from(i))
+  }
+}
+
 impl i16x16 {
   #[inline]
   #[must_use]
@@ -294,9 +312,10 @@ impl i16x16 {
   #[must_use]
   pub fn move_mask(self) -> i32 {
     pick! {
-      if #[cfg(target_feature="avx2")] {
-        (move_mask_i8_m256i(pack_i16_to_i8_m256i(self.avx2,shuffle_ai_i64_all_m256i::<0b01_00_11_10>(self.avx2))) & 0xffff) as i32
-      } else {
+      if #[cfg(target_feature="sse2")] {
+          let [a,b] = cast::<_,[m128i;2]>(self);
+          move_mask_i8_m128i( pack_i16_to_i8_m128i(a,b))
+        } else {
         self.a.move_mask() | (self.b.move_mask() << 8)
       }
     }
@@ -504,13 +523,13 @@ impl i16x16 {
     }
   }
 
-  /// Multiply and scale equivilent to ((self * rhs) + 0x4000) >> 15 on each
-  /// lane, effectively multiplying by a 16 bit fixed point number between -1
-  /// and 1. This corresponds to the following instructions:
-  /// - vqrdmulhq_n_s16 instruction on neon
-  /// - i16x8_q15mulr_sat on simd128
-  /// - _mm256_mulhrs_epi16 on avx2
-  /// - emulated via mul_i16_* on sse2
+  /// Multiply and scale equivalent to `((self * rhs) + 0x4000) >> 15` on each
+  /// lane, effectively multiplying by a 16 bit fixed point number between `-1`
+  /// and `1`. This corresponds to the following instructions:
+  /// - `vqrdmulhq_n_s16` instruction on neon
+  /// - `i16x8_q15mulr_sat` on simd128
+  /// - `_mm256_mulhrs_epi16` on avx2
+  /// - emulated via `mul_i16_*` on sse2
   #[inline]
   #[must_use]
   pub fn mul_scale_round(self, rhs: Self) -> Self {
@@ -526,13 +545,13 @@ impl i16x16 {
     }
   }
 
-  /// Multiply and scale equivilent to ((self * rhs) + 0x4000) >> 15 on each
-  /// lane, effectively multiplying by a 16 bit fixed point number between -1
-  /// and 1. This corresponds to the following instructions:
-  /// - vqrdmulhq_n_s16 instruction on neon
-  /// - i16x8_q15mulr_sat on simd128
-  /// - _mm256_mulhrs_epi16 on avx2
-  /// - emulated via mul_i16_* on sse2
+  /// Multiply and scale equivalent to `((self * rhs) + 0x4000) >> 15` on each
+  /// lane, effectively multiplying by a 16 bit fixed point number between `-1`
+  /// and `1`. This corresponds to the following instructions:
+  /// - `vqrdmulhq_n_s16` instruction on neon
+  /// - `i16x8_q15mulr_sat` on simd128
+  /// - `_mm256_mulhrs_epi16` on avx2
+  /// - emulated via `mul_i16_*` on sse2
   #[inline]
   #[must_use]
   pub fn mul_scale_round_n(self, rhs: i16) -> Self {

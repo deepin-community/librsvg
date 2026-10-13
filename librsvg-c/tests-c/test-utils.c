@@ -1,7 +1,6 @@
 /* -*- Mode: C; tab-width: 4; indent-tabs-mode: nil; c-basic-offset: 4 -*- */
 /* vim: set sw=4 sts=4 ts=4 expandtab: */
 
-#include "config.h"
 #include "test-utils.h"
 
 #include <string.h>
@@ -110,6 +109,7 @@ test_utils_compare_surfaces (cairo_surface_t           *surface_a,
                     result->pixels_changed, result->max_diff);
 }
 
+#ifdef HAVE_PIXBUF
 /* Copied from gdk_cairo_surface_paint_pixbuf in gdkcairo.c,
  * we do not want to depend on GDK
  */
@@ -220,6 +220,7 @@ test_utils_cairo_surface_from_pixbuf (const GdkPixbuf *pixbuf)
 
     return surface;
 }
+#endif /* defined(HAVE_PIXBUF) */
 
 static gchar *data_path = NULL;
 

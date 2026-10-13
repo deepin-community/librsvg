@@ -11,27 +11,10 @@ impl<A, B> Cast<A, B> {
   const ASSERT_ALIGN_GREATER_THAN_EQUAL: () =
     assert!(align_of::<A>() >= align_of::<B>());
   const ASSERT_SIZE_EQUAL: () = assert!(size_of::<A>() == size_of::<B>());
-  const ASSERT_SIZE_MULTIPLE_OF: () = assert!(
-    (size_of::<A>() == 0) == (size_of::<B>() == 0)
-      && (size_of::<A>() % size_of::<B>() == 0)
+  const ASSERT_SIZE_MULTIPLE_OF_OR_INPUT_ZST: () = assert!(
+    (size_of::<A>() == 0)
+      || (size_of::<B>() != 0 && size_of::<A>() % size_of::<B>() == 0)
   );
-}
-
-// Workaround for https://github.com/rust-lang/miri/issues/2423.
-// Miri currently doesn't see post-monomorphization errors until runtime,
-// so `compile_fail` tests relying on post-monomorphization errors don't
-// actually fail. Instead use `should_panic` under miri as a workaround.
-#[cfg(miri)]
-macro_rules! post_mono_compile_fail_doctest {
-  () => {
-    "```should_panic"
-  };
-}
-#[cfg(not(miri))]
-macro_rules! post_mono_compile_fail_doctest {
-  () => {
-    "```compile_fail,E0080"
-  };
 }
 
 /// Cast `A` into `B` if infalliable, or fail to compile.
@@ -50,14 +33,14 @@ macro_rules! post_mono_compile_fail_doctest {
 /// // compiles:
 /// let bytes: [u8; 2] = bytemuck::must_cast(12_u16);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// // fails to compile (size mismatch):
 /// let bytes : [u8; 3] = bytemuck::must_cast(12_u16);
 /// ```
 #[inline]
-pub fn must_cast<A: NoUninit, B: AnyBitPattern>(a: A) -> B {
+pub const fn must_cast<A: NoUninit, B: AnyBitPattern>(a: A) -> B {
   let _ = Cast::<A, B>::ASSERT_SIZE_EQUAL;
-  unsafe { transmute!(a) }
+  unsafe { transmute!(A; B; a) }
 }
 
 /// Convert `&A` into `&B` if infalliable, or fail to compile.
@@ -72,16 +55,16 @@ pub fn must_cast<A: NoUninit, B: AnyBitPattern>(a: A) -> B {
 /// // compiles:
 /// let bytes: &[u8; 2] = bytemuck::must_cast_ref(&12_u16);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// // fails to compile (size mismatch):
 /// let bytes : &[u8; 3] = bytemuck::must_cast_ref(&12_u16);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// // fails to compile (alignment requirements increased):
 /// let bytes : &u16 = bytemuck::must_cast_ref(&[1u8, 2u8]);
 /// ```
 #[inline]
-pub fn must_cast_ref<A: NoUninit, B: AnyBitPattern>(a: &A) -> &B {
+pub const fn must_cast_ref<A: NoUninit, B: AnyBitPattern>(a: &A) -> &B {
   let _ = Cast::<A, B>::ASSERT_SIZE_EQUAL;
   let _ = Cast::<A, B>::ASSERT_ALIGN_GREATER_THAN_EQUAL;
   unsafe { &*(a as *const A as *const B) }
@@ -97,12 +80,12 @@ pub fn must_cast_ref<A: NoUninit, B: AnyBitPattern>(a: &A) -> &B {
 /// // compiles:
 /// let bytes: &mut [u8; 2] = bytemuck::must_cast_mut(&mut i);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// # let mut bytes: &mut [u8; 2] = &mut [1, 2];
 /// // fails to compile (alignment requirements increased):
 /// let i : &mut u16 = bytemuck::must_cast_mut(bytes);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// # let mut i = 12_u16;
 /// // fails to compile (size mismatch):
 /// let bytes : &mut [u8; 3] = bytemuck::must_cast_mut(&mut i);
@@ -130,8 +113,8 @@ pub fn must_cast_mut<
 /// * If the target type has a greater alignment requirement.
 /// * If the target element type doesn't evenly fit into the the current element
 ///   type (eg: 3 `u16` values is 1.5 `u32` values, so that's a failure).
-/// * Similarly, you can't convert between a [ZST](https://doc.rust-lang.org/nomicon/exotic-sizes.html#zero-sized-types-zsts)
-///   and a non-ZST.
+/// * Similarly, you can't convert from a non-[ZST](https://doc.rust-lang.org/nomicon/exotic-sizes.html#zero-sized-types-zsts)
+///   to a ZST (e.g. 3 `u8` values is not any number of `()` values).
 ///
 /// ## Examples
 /// ```
@@ -139,19 +122,29 @@ pub fn must_cast_mut<
 /// // compiles:
 /// let bytes: &[u8] = bytemuck::must_cast_slice(indicies);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```
+/// let zsts: &[()] = &[(), (), ()];
+/// // compiles:
+/// let bytes: &[u8] = bytemuck::must_cast_slice(zsts);
+/// ```
+/// ```compile_fail,E0080
 /// # let bytes : &[u8] = &[1, 0, 2, 0, 3, 0];
 /// // fails to compile (bytes.len() might not be a multiple of 2):
 /// let byte_pairs : &[[u8; 2]] = bytemuck::must_cast_slice(bytes);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// # let byte_pairs : &[[u8; 2]] = &[[1, 0], [2, 0], [3, 0]];
 /// // fails to compile (alignment requirements increased):
 /// let indicies : &[u16] = bytemuck::must_cast_slice(byte_pairs);
 /// ```
+/// ```compile_fail,E0080
+/// let bytes: &[u8] = &[];
+/// // fails to compile: (bytes.len() might not be 0)
+/// let zsts: &[()] = bytemuck::must_cast_slice(bytes);
+/// ```
 #[inline]
-pub fn must_cast_slice<A: NoUninit, B: AnyBitPattern>(a: &[A]) -> &[B] {
-  let _ = Cast::<A, B>::ASSERT_SIZE_MULTIPLE_OF;
+pub const fn must_cast_slice<A: NoUninit, B: AnyBitPattern>(a: &[A]) -> &[B] {
+  let _ = Cast::<A, B>::ASSERT_SIZE_MULTIPLE_OF_OR_INPUT_ZST;
   let _ = Cast::<A, B>::ASSERT_ALIGN_GREATER_THAN_EQUAL;
   let new_len = if size_of::<A>() == size_of::<B>() {
     a.len()
@@ -173,17 +166,27 @@ pub fn must_cast_slice<A: NoUninit, B: AnyBitPattern>(a: &[A]) -> &[B] {
 /// // compiles:
 /// let bytes: &mut [u8] = bytemuck::must_cast_slice_mut(indicies);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```
+/// let zsts: &mut [()] = &mut [(), (), ()];
+/// // compiles:
+/// let bytes: &mut [u8] = bytemuck::must_cast_slice_mut(zsts);
+/// ```
+/// ```compile_fail,E0080
 /// # let mut bytes = [1, 0, 2, 0, 3, 0];
 /// # let bytes : &mut [u8] = &mut bytes[..];
 /// // fails to compile (bytes.len() might not be a multiple of 2):
 /// let byte_pairs : &mut [[u8; 2]] = bytemuck::must_cast_slice_mut(bytes);
 /// ```
-#[doc = post_mono_compile_fail_doctest!()]
+/// ```compile_fail,E0080
 /// # let mut byte_pairs = [[1, 0], [2, 0], [3, 0]];
 /// # let byte_pairs : &mut [[u8; 2]] = &mut byte_pairs[..];
 /// // fails to compile (alignment requirements increased):
 /// let indicies : &mut [u16] = bytemuck::must_cast_slice_mut(byte_pairs);
+/// ```
+/// ```compile_fail,E0080
+/// let bytes: &mut [u8] = &mut [];
+/// // fails to compile: (bytes.len() might not be 0)
+/// let zsts: &mut [()] = bytemuck::must_cast_slice_mut(bytes);
 /// ```
 #[inline]
 pub fn must_cast_slice_mut<
@@ -192,7 +195,7 @@ pub fn must_cast_slice_mut<
 >(
   a: &mut [A],
 ) -> &mut [B] {
-  let _ = Cast::<A, B>::ASSERT_SIZE_MULTIPLE_OF;
+  let _ = Cast::<A, B>::ASSERT_SIZE_MULTIPLE_OF_OR_INPUT_ZST;
   let _ = Cast::<A, B>::ASSERT_ALIGN_GREATER_THAN_EQUAL;
   let new_len = if size_of::<A>() == size_of::<B>() {
     a.len()

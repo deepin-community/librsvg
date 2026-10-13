@@ -131,12 +131,22 @@ fn impl_i32x4_abs() {
 }
 
 #[test]
+fn impl_i32x4_unsigned_abs() {
+  let a = i32x4::from([-1, 2, -3, i32::MIN]);
+  let expected = u32x4::from([1, 2, 3, i32::MIN as u32]);
+  let actual = a.unsigned_abs();
+  assert_eq!(expected, actual);
+}
+
+#[test]
 fn impl_i32x4_max() {
   let a = i32x4::from([1, 2, i32::MIN + 1, i32::MIN]);
   let b = i32x4::from([17, -18, 1, 1]);
   let expected = i32x4::from([17, 2, 1, 1]);
   let actual = a.max(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i32x4, b| a.max(b), |a, b| a.max(b));
 }
 
 #[test]
@@ -146,6 +156,8 @@ fn impl_i32x4_min() {
   let expected = i32x4::from([1, -18, i32::MIN + 1, i32::MIN]);
   let actual = a.min(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i32x4, b| a.min(b), |a, b| a.min(b));
 }
 
 #[test]
@@ -167,6 +179,12 @@ fn test_i32x4_move_mask() {
   let expected = 0b1000;
   let actual = a.move_mask();
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i32x4| a.move_mask(),
+    0i32,
+    |acc, a, idx| acc | if a < 0 { 1 << idx } else { 0 },
+  );
 }
 
 #[test]
@@ -220,4 +238,50 @@ fn impl_i32x4_reduce_max() {
     let p = i32x4::from(v);
     assert_eq!(p.reduce_max(), i32::MAX);
   }
+}
+
+#[test]
+fn impl_i32x4_shr_each() {
+  let a = i32x4::from([15313, 52322, -1, 4]);
+  let shift = i32x4::from([1, 30, 8, 33 /* test masking behavior */]);
+  let expected = i32x4::from([7656, 0, -1, 2]);
+  let actual = a >> shift;
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i32x4, b| a >> b,
+    |a, b| a.wrapping_shr(b as u32),
+  );
+}
+#[test]
+fn impl_i32x4_shl_each() {
+  let a = i32x4::from([15313, 52322, -1, 4]);
+  let shift = i32x4::from([1, 30, 8, 33 /* test masking behavior */]);
+  let expected = i32x4::from([30626, -2147483648, -256, 8]);
+  let actual = a << shift;
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i32x4, b| a << b,
+    |a, b| a.wrapping_shl(b as u32),
+  );
+}
+
+#[test]
+fn impl_i32x4_mul_widen() {
+  let a = i32x4::from([1, 2, 3 * -1000000, i32::MAX]);
+  let b = i32x4::from([5, 6, 7 * -1000000, i32::MIN]);
+  let expected = i64x4::from([
+    1 * 5,
+    2 * 6,
+    3 * 7 * 1000000 * 1000000,
+    i32::MIN as i64 * i32::MAX as i64,
+  ]);
+  let actual = a.mul_widen(b);
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(
+    |a: i32x4, b| a.mul_widen(b),
+    |a, b| a as i64 * b as i64,
+  );
 }

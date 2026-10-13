@@ -734,34 +734,6 @@ const RUST_LAYOUTS: &[(&str, Layout)] = &[
         },
     ),
     (
-        "GStaticMutex",
-        Layout {
-            size: size_of::<GStaticMutex>(),
-            alignment: align_of::<GStaticMutex>(),
-        },
-    ),
-    (
-        "GStaticPrivate",
-        Layout {
-            size: size_of::<GStaticPrivate>(),
-            alignment: align_of::<GStaticPrivate>(),
-        },
-    ),
-    (
-        "GStaticRWLock",
-        Layout {
-            size: size_of::<GStaticRWLock>(),
-            alignment: align_of::<GStaticRWLock>(),
-        },
-    ),
-    (
-        "GStaticRecMutex",
-        Layout {
-            size: size_of::<GStaticRecMutex>(),
-            alignment: align_of::<GStaticRecMutex>(),
-        },
-    ),
-    (
         "GString",
         Layout {
             size: size_of::<GString>(),
@@ -1043,15 +1015,6 @@ const RUST_LAYOUTS: &[(&str, Layout)] = &[
         Layout {
             size: size_of::<GVariantParseError>(),
             alignment: align_of::<GVariantParseError>(),
-        },
-    ),
-    #[cfg(windows)]
-    #[cfg_attr(docsrs, doc(cfg(windows)))]
-    (
-        "GWin32OSType",
-        Layout {
-            size: size_of::<GWin32OSType>(),
-            alignment: align_of::<GWin32OSType>(),
         },
     ),
 ];
@@ -1573,7 +1536,6 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_TOKEN_RIGHT_PAREN", "41"),
     ("(gint) G_TOKEN_STRING", "264"),
     ("(gint) G_TOKEN_SYMBOL", "265"),
-    ("G_TRACE_CURRENT_TIME", "0"),
     ("(guint) G_TRAVERSE_ALL", "3"),
     ("(guint) G_TRAVERSE_LEAFS", "1"),
     ("(guint) G_TRAVERSE_LEAVES", "1"),
@@ -1693,6 +1655,7 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_ELBASAN", "106"),
     ("(gint) G_UNICODE_SCRIPT_ELYMAIC", "149"),
     ("(gint) G_UNICODE_SCRIPT_ETHIOPIC", "11"),
+    ("(gint) G_UNICODE_SCRIPT_GARAY", "166"),
     ("(gint) G_UNICODE_SCRIPT_GEORGIAN", "12"),
     ("(gint) G_UNICODE_SCRIPT_GLAGOLITIC", "56"),
     ("(gint) G_UNICODE_SCRIPT_GOTHIC", "13"),
@@ -1701,6 +1664,7 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_GUJARATI", "15"),
     ("(gint) G_UNICODE_SCRIPT_GUNJALA_GONDI", "143"),
     ("(gint) G_UNICODE_SCRIPT_GURMUKHI", "16"),
+    ("(gint) G_UNICODE_SCRIPT_GURUNG_KHEMA", "169"),
     ("(gint) G_UNICODE_SCRIPT_HAN", "17"),
     ("(gint) G_UNICODE_SCRIPT_HANGUL", "18"),
     ("(gint) G_UNICODE_SCRIPT_HANIFI_ROHINGYA", "144"),
@@ -1724,6 +1688,7 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_KHMER", "23"),
     ("(gint) G_UNICODE_SCRIPT_KHOJKI", "108"),
     ("(gint) G_UNICODE_SCRIPT_KHUDAWADI", "109"),
+    ("(gint) G_UNICODE_SCRIPT_KIRAT_RAI", "170"),
     ("(gint) G_UNICODE_SCRIPT_LAO", "24"),
     ("(gint) G_UNICODE_SCRIPT_LATIN", "25"),
     ("(gint) G_UNICODE_SCRIPT_LEPCHA", "68"),
@@ -1771,6 +1736,7 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_OLD_TURKIC", "89"),
     ("(gint) G_UNICODE_SCRIPT_OLD_UYGHUR", "158"),
     ("(gint) G_UNICODE_SCRIPT_OL_CHIKI", "73"),
+    ("(gint) G_UNICODE_SCRIPT_OL_ONAL", "171"),
     ("(gint) G_UNICODE_SCRIPT_ORIYA", "31"),
     ("(gint) G_UNICODE_SCRIPT_OSAGE", "136"),
     ("(gint) G_UNICODE_SCRIPT_OSMANYA", "49"),
@@ -1793,6 +1759,7 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_SORA_SOMPENG", "101"),
     ("(gint) G_UNICODE_SCRIPT_SOYOMBO", "140"),
     ("(gint) G_UNICODE_SCRIPT_SUNDANESE", "70"),
+    ("(gint) G_UNICODE_SCRIPT_SUNUWAR", "168"),
     ("(gint) G_UNICODE_SCRIPT_SYLOTI_NAGRI", "58"),
     ("(gint) G_UNICODE_SCRIPT_SYRIAC", "34"),
     ("(gint) G_UNICODE_SCRIPT_TAGALOG", "42"),
@@ -1810,7 +1777,9 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ("(gint) G_UNICODE_SCRIPT_TIBETAN", "39"),
     ("(gint) G_UNICODE_SCRIPT_TIFINAGH", "57"),
     ("(gint) G_UNICODE_SCRIPT_TIRHUTA", "124"),
+    ("(gint) G_UNICODE_SCRIPT_TODHRI", "165"),
     ("(gint) G_UNICODE_SCRIPT_TOTO", "160"),
+    ("(gint) G_UNICODE_SCRIPT_TULU_TIGALARI", "167"),
     ("(gint) G_UNICODE_SCRIPT_UGARITIC", "53"),
     ("(gint) G_UNICODE_SCRIPT_UNKNOWN", "61"),
     ("(gint) G_UNICODE_SCRIPT_VAI", "74"),
@@ -1914,7 +1883,4 @@ const RUST_CONSTANTS: &[(&str, &str)] = &[
     ),
     ("(gint) G_VARIANT_PARSE_ERROR_VALUE_EXPECTED", "17"),
     ("G_WIN32_MSG_HANDLE", "19981206"),
-    ("(gint) G_WIN32_OS_ANY", "0"),
-    ("(gint) G_WIN32_OS_SERVER", "2"),
-    ("(gint) G_WIN32_OS_WORKSTATION", "1"),
 ];

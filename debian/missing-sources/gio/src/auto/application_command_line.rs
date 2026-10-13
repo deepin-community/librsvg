@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{File, InputStream};
+use crate::{ffi, File, InputStream};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -94,6 +94,7 @@ pub trait ApplicationCommandLineExt:
 
     #[doc(alias = "g_application_command_line_get_is_remote")]
     #[doc(alias = "get_is_remote")]
+    #[doc(alias = "is-remote")]
     fn is_remote(&self) -> bool {
         unsafe {
             from_glib(ffi::g_application_command_line_get_is_remote(
@@ -204,7 +205,7 @@ pub trait ApplicationCommandLineExt:
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::is-remote\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_is_remote_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

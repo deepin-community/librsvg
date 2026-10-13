@@ -1,18 +1,17 @@
 use std::cmp::{self, Ordering};
-use std::convert::TryFrom;
-use std::io::{self, Cursor, Read, Seek, SeekFrom};
-use std::iter::{repeat, Iterator, Rev};
-use std::marker::PhantomData;
+use std::io::{self, BufRead, Seek, SeekFrom};
+use std::iter::{repeat, Rev};
 use std::slice::ChunksMut;
-use std::{error, fmt, mem};
+use std::{error, fmt};
 
-use byteorder::{LittleEndian, ReadBytesExt};
+use byteorder_lite::{LittleEndian, ReadBytesExt};
 
 use crate::color::ColorType;
 use crate::error::{
     DecodingError, ImageError, ImageResult, UnsupportedError, UnsupportedErrorKind,
 };
-use crate::image::{self, ImageDecoder, ImageDecoderRect, ImageFormat, Progress};
+use crate::image::{self, ImageDecoder, ImageFormat};
+use crate::ImageDecoderRect;
 
 const BITMAPCOREHEADER_SIZE: u32 = 12;
 const BITMAPINFOHEADER_SIZE: u32 = 40;
@@ -168,38 +167,35 @@ impl fmt::Display for DecoderError {
             DecoderError::BitfieldMaskNonContiguous => f.write_str("Non-contiguous bitfield mask"),
             DecoderError::BitfieldMaskInvalid => f.write_str("Invalid bitfield mask"),
             DecoderError::BitfieldMaskMissing(bb) => {
-                f.write_fmt(format_args!("Missing {}-bit bitfield mask", bb))
+                f.write_fmt(format_args!("Missing {bb}-bit bitfield mask"))
             }
             DecoderError::BitfieldMasksMissing(bb) => {
-                f.write_fmt(format_args!("Missing {}-bit bitfield masks", bb))
+                f.write_fmt(format_args!("Missing {bb}-bit bitfield masks"))
             }
             DecoderError::BmpSignatureInvalid => f.write_str("BMP signature not found"),
             DecoderError::MoreThanOnePlane => f.write_str("More than one plane"),
             DecoderError::InvalidChannelWidth(tp, n) => {
-                f.write_fmt(format_args!("Invalid channel bit count for {}: {}", tp, n))
+                f.write_fmt(format_args!("Invalid channel bit count for {tp}: {n}"))
             }
-            DecoderError::NegativeWidth(w) => f.write_fmt(format_args!("Negative width ({})", w)),
+            DecoderError::NegativeWidth(w) => f.write_fmt(format_args!("Negative width ({w})")),
             DecoderError::ImageTooLarge(w, h) => f.write_fmt(format_args!(
-                "Image too large (one of ({}, {}) > soft limit of {})",
-                w, h, MAX_WIDTH_HEIGHT
+                "Image too large (one of ({w}, {h}) > soft limit of {MAX_WIDTH_HEIGHT})"
             )),
             DecoderError::InvalidHeight => f.write_str("Invalid height"),
             DecoderError::ImageTypeInvalidForTopDown(tp) => f.write_fmt(format_args!(
-                "Invalid image type {} for top-down image.",
-                tp
+                "Invalid image type {tp} for top-down image."
             )),
             DecoderError::ImageTypeUnknown(tp) => {
-                f.write_fmt(format_args!("Unknown image compression type {}", tp))
+                f.write_fmt(format_args!("Unknown image compression type {tp}"))
             }
             DecoderError::HeaderTooSmall(s) => {
-                f.write_fmt(format_args!("Bitmap header too small ({} bytes)", s))
+                f.write_fmt(format_args!("Bitmap header too small ({s} bytes)"))
             }
             DecoderError::PaletteSizeExceeded {
                 colors_used,
                 bit_count,
             } => f.write_fmt(format_args!(
-                "Palette size {} exceeds maximum size for BMP with bit count of {}",
-                colors_used, bit_count
+                "Palette size {colors_used} exceeds maximum size for BMP with bit count of {bit_count}"
             )),
         }
     }
@@ -246,8 +242,7 @@ fn check_for_overflow(width: i32, length: i32, channels: usize) -> ImageResult<(
             ImageError::Unsupported(UnsupportedError::from_format_and_kind(
                 ImageFormat::Bmp.into(),
                 UnsupportedErrorKind::GenericFeature(format!(
-                    "Image dimensions ({}x{} w/{} channels) are too large",
-                    width, length, channels
+                    "Image dimensions ({width}x{length} w/{channels} channels) are too large"
                 )),
             ))
         })
@@ -503,7 +498,7 @@ enum RLEInsn {
     PixelRun(u8, u8),
 }
 
-impl<R: Read + Seek> BmpDecoder<R> {
+impl<R: BufRead + Seek> BmpDecoder<R> {
     fn new_decoder(reader: R) -> BmpDecoder<R> {
         BmpDecoder {
             reader,
@@ -535,7 +530,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
     }
 
     /// Create a new decoder that decodes from the stream ```r``` without first
-    /// reading a BITMAPFILEHEADER. This is useful for decoding the CF_DIB format
+    /// reading a BITMAPFILEHEADER. This is useful for decoding the `CF_DIB` format
     /// directly from the Windows clipboard.
     pub fn new_without_file_header(reader: R) -> ImageResult<BmpDecoder<R>> {
         let mut decoder = Self::new_decoder(reader);
@@ -583,7 +578,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
         Ok(())
     }
 
-    /// Read BITMAPCOREHEADER https://msdn.microsoft.com/en-us/library/vs/alm/dd183372(v=vs.85).aspx
+    /// Read BITMAPCOREHEADER <https://msdn.microsoft.com/en-us/library/vs/alm/dd183372(v=vs.85).aspx>
     ///
     /// returns Err if any of the values are invalid.
     fn read_bitmap_core_header(&mut self) -> ImageResult<()> {
@@ -615,7 +610,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
         Ok(())
     }
 
-    /// Read BITMAPINFOHEADER https://msdn.microsoft.com/en-us/library/vs/alm/dd183376(v=vs.85).aspx
+    /// Read BITMAPINFOHEADER <https://msdn.microsoft.com/en-us/library/vs/alm/dd183376(v=vs.85).aspx>
     /// or BITMAPV{2|3|4|5}HEADER.
     ///
     /// returns Err if any of the values are invalid.
@@ -632,7 +627,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
             return Err(DecoderError::ImageTooLarge(self.width, self.height).into());
         }
 
-        if self.height == i32::min_value() {
+        if self.height == i32::MIN {
             return Err(DecoderError::InvalidHeight.into());
         }
 
@@ -804,8 +799,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
                         UnsupportedError::from_format_and_kind(
                             ImageFormat::Bmp.into(),
                             UnsupportedErrorKind::GenericFeature(format!(
-                                "Unknown bitmap header type (size={})",
-                                bmp_header_size
+                                "Unknown bitmap header type (size={bmp_header_size})"
                             )),
                         ),
                     ))
@@ -1330,25 +1324,7 @@ impl<R: Read + Seek> BmpDecoder<R> {
     }
 }
 
-/// Wrapper struct around a `Cursor<Vec<u8>>`
-pub struct BmpReader<R>(Cursor<Vec<u8>>, PhantomData<R>);
-impl<R> Read for BmpReader<R> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-    fn read_to_end(&mut self, buf: &mut Vec<u8>) -> io::Result<usize> {
-        if self.0.position() == 0 && buf.is_empty() {
-            mem::swap(buf, self.0.get_mut());
-            Ok(buf.len())
-        } else {
-            self.0.read_to_end(buf)
-        }
-    }
-}
-
-impl<'a, R: 'a + Read + Seek> ImageDecoder<'a> for BmpDecoder<R> {
-    type Reader = BmpReader<R>;
-
+impl<R: BufRead + Seek> ImageDecoder for BmpDecoder<R> {
     fn dimensions(&self) -> (u32, u32) {
         (self.width as u32, self.height as u32)
     }
@@ -1363,28 +1339,25 @@ impl<'a, R: 'a + Read + Seek> ImageDecoder<'a> for BmpDecoder<R> {
         }
     }
 
-    fn into_reader(self) -> ImageResult<Self::Reader> {
-        Ok(BmpReader(
-            Cursor::new(image::decoder_to_vec(self)?),
-            PhantomData,
-        ))
-    }
-
     fn read_image(mut self, buf: &mut [u8]) -> ImageResult<()> {
         assert_eq!(u64::try_from(buf.len()), Ok(self.total_bytes()));
         self.read_image_data(buf)
     }
+
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        (*self).read_image(buf)
+    }
 }
 
-impl<'a, R: 'a + Read + Seek> ImageDecoderRect<'a> for BmpDecoder<R> {
-    fn read_rect_with_progress<F: Fn(Progress)>(
+impl<R: BufRead + Seek> ImageDecoderRect for BmpDecoder<R> {
+    fn read_rect(
         &mut self,
         x: u32,
         y: u32,
         width: u32,
         height: u32,
         buf: &mut [u8],
-        progress_callback: F,
+        row_pitch: usize,
     ) -> ImageResult<()> {
         let start = self.reader.stream_position()?;
         image::load_rect(
@@ -1393,8 +1366,9 @@ impl<'a, R: 'a + Read + Seek> ImageDecoderRect<'a> for BmpDecoder<R> {
             width,
             height,
             buf,
-            progress_callback,
+            row_pitch,
             self,
+            self.total_bytes() as usize,
             |_, _| Ok(()),
             |s, buf| s.read_image_data(buf),
         )?;
@@ -1405,6 +1379,8 @@ impl<'a, R: 'a + Read + Seek> ImageDecoderRect<'a> for BmpDecoder<R> {
 
 #[cfg(test)]
 mod test {
+    use std::io::{BufReader, Cursor};
+
     use super::*;
 
     #[test]
@@ -1424,11 +1400,12 @@ mod test {
 
     #[test]
     fn read_rect() {
-        let f = std::fs::File::open("tests/images/bmp/images/Core_8_Bit.bmp").unwrap();
-        let mut decoder = super::BmpDecoder::new(f).unwrap();
+        let f =
+            BufReader::new(std::fs::File::open("tests/images/bmp/images/Core_8_Bit.bmp").unwrap());
+        let mut decoder = BmpDecoder::new(f).unwrap();
 
         let mut buf: Vec<u8> = vec![0; 8 * 8 * 3];
-        decoder.read_rect(0, 0, 8, 8, &mut buf).unwrap();
+        decoder.read_rect(0, 0, 8, 8, &mut buf, 8 * 3).unwrap();
     }
 
     #[test]

@@ -100,7 +100,7 @@ impl<T: SimdRealField> Rotation2<T> {
         T: RealField,
     {
         if max_iter == 0 {
-            max_iter = usize::max_value();
+            max_iter = usize::MAX;
         }
 
         let mut rot = guess.into_inner();
@@ -310,7 +310,7 @@ where
     ///
     /// # Arguments
     ///   * `axisangle` - A vector representing the rotation. Its magnitude is the amount of rotation
-    ///   in radian. Its direction is the axis of rotation.
+    ///     in radian. Its direction is the axis of rotation.
     ///
     /// # Example
     /// ```
@@ -459,7 +459,7 @@ where
     /// # Arguments
     ///   * dir - The look direction, that is, direction the matrix `z` axis will be aligned with.
     ///   * up - The vertical direction. The only requirement of this parameter is to not be
-    ///   collinear to `dir`. Non-collinearity is not checked.
+    ///     collinear to `dir`. Non-collinearity is not checked.
     ///
     /// # Example
     /// ```
@@ -515,7 +515,7 @@ where
     /// # Arguments
     ///   * dir - The direction toward which the camera looks.
     ///   * up - A vector approximately aligned with required the vertical axis. The only
-    ///   requirement of this parameter is to not be collinear to `dir`.
+    ///     requirement of this parameter is to not be collinear to `dir`.
     ///
     /// # Example
     /// ```
@@ -546,7 +546,7 @@ where
     /// # Arguments
     ///   * dir - The direction toward which the camera looks.
     ///   * up - A vector approximately aligned with required the vertical axis. The only
-    ///   requirement of this parameter is to not be collinear to `dir`.
+    ///     requirement of this parameter is to not be collinear to `dir`.
     ///
     /// # Example
     /// ```
@@ -1058,7 +1058,7 @@ impl<T: SimdRealField> Rotation3<T> {
     {
         let mut angles = [T::zero(); 3];
         let eps = T::from_subset(&1e-7);
-        let _2 = T::from_subset(&2.0);
+        let two = T::from_subset(&2.0);
 
         if extrinsic {
             seq.reverse();
@@ -1090,7 +1090,7 @@ impl<T: SimdRealField> Rotation3<T> {
             -s1,
             c1,
         );
-        let o_t = &c * self.matrix() * (c.transpose() * r1l);
+        let o_t = c * self.matrix() * (c.transpose() * r1l);
         angles[1] = o_t.m33.acos();
 
         let safe1 = angles[1].abs() >= eps;
@@ -1124,14 +1124,14 @@ impl<T: SimdRealField> Rotation3<T> {
             // lambda = 0, so ensure angle2 -> [0, pi]
             angles[1] < T::zero() || angles[1] > T::pi()
         } else {
-            // lamda = + or - pi/2, so ensure angle2 -> [-pi/2, pi/2]
+            // lambda = + or - pi/2, so ensure angle2 -> [-pi/2, pi/2]
             angles[1] < -T::frac_pi_2() || angles[1] > T::frac_pi_2()
         };
 
         // dont adjust gimbal locked rotation
         if adjust && observable {
             angles[0] += T::pi();
-            angles[1] = _2 * lambda - angles[1];
+            angles[1] = two * lambda - angles[1];
             angles[2] -= T::pi();
         }
 

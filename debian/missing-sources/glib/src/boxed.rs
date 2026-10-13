@@ -32,6 +32,7 @@ macro_rules! glib_boxed_wrapper {
 
     (@generic_impl [$($attr:meta)*] $visibility:vis $name:ident $(<$($generic:ident $(: $bound:tt $(+ $bound2:tt)*)?),+>)?, $ffi_name:ty) => {
         $(#[$attr])*
+        #[doc = "\n\nGLib type: Boxed type with copy-on-clone semantics."]
         #[repr(transparent)]
         $visibility struct $name $(<$($generic $(: $bound $(+ $bound2)*)?),+>)? {
             inner: $crate::boxed::Boxed<$ffi_name, Self>,
@@ -46,18 +47,29 @@ macro_rules! glib_boxed_wrapper {
 
             #[doc = "Borrows the underlying C value."]
             #[inline]
-            pub unsafe fn from_glib_ptr_borrow<'a>(ptr: *const *const $ffi_name) -> &'a Self {
-                &*(ptr as *const Self)
+            pub unsafe fn from_glib_ptr_borrow(ptr: &*mut $ffi_name) -> &Self {
+                debug_assert_eq!(
+                    std::mem::size_of::<Self>(),
+                    std::mem::size_of::<$crate::ffi::gpointer>()
+                );
+                debug_assert!(!ptr.is_null());
+                &*(ptr as *const *mut $ffi_name as *const Self)
             }
 
             #[doc = "Borrows the underlying C value mutably."]
             #[inline]
-            pub unsafe fn from_glib_ptr_borrow_mut<'a>(ptr: *mut *mut $ffi_name) -> &'a mut Self {
-                &mut *(ptr as *mut Self)
+            pub unsafe fn from_glib_ptr_borrow_mut(ptr: &mut *mut $ffi_name) -> &mut Self {
+                debug_assert_eq!(
+                    std::mem::size_of::<Self>(),
+                    std::mem::size_of::<$crate::ffi::gpointer>()
+                );
+                debug_assert!(!ptr.is_null());
+                &mut *(ptr as *mut *mut $ffi_name as *mut Self)
             }
         }
 
         impl $(<$($generic $(: $bound $(+ $bound2)*)?),+>)? std::clone::Clone for $name $(<$($generic),+>)? {
+            #[doc = "Copies the boxed type with the type-specific copy function."]
             #[inline]
             fn clone(&self) -> Self {
                 Self {
@@ -319,6 +331,7 @@ macro_rules! glib_boxed_wrapper {
             #[inline]
             fn static_type() -> $crate::types::Type {
                 #[allow(unused_unsafe)]
+                #[allow(clippy::macro_metavars_in_unsafe)]
                 unsafe { $crate::translate::from_glib($get_type_expr) }
             }
         }
@@ -349,10 +362,8 @@ macro_rules! glib_boxed_wrapper {
 
             #[inline]
             unsafe fn from_value(value: &'a $crate::Value) -> Self {
-                debug_assert_eq!(std::mem::size_of::<Self>(), std::mem::size_of::<$crate::ffi::gpointer>());
                 let value = &*(value as *const $crate::Value as *const $crate::gobject_ffi::GValue);
-                debug_assert!(!value.data[0].v_pointer.is_null());
-                <$name $(<$($generic),+>)?>::from_glib_ptr_borrow(&value.data[0].v_pointer as *const $crate::ffi::gpointer as *const *const $ffi_name)
+                <$name $(<$($generic),+>)?>::from_glib_ptr_borrow(&*(&value.data[0].v_pointer as *const $crate::ffi::gpointer as *const *mut $ffi_name))
             }
         }
 

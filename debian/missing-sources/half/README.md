@@ -1,5 +1,5 @@
 # `f16` and `bf16` floating point types for Rust
-[![Crates.io](https://img.shields.io/crates/v/half.svg)](https://crates.io/crates/half/) [![Documentation](https://docs.rs/half/badge.svg)](https://docs.rs/half/) ![Crates.io](https://img.shields.io/crates/l/half) [![Build status](https://github.com/starkat99/half-rs/actions/workflows/rust.yml/badge.svg?branch=master)](https://github.com/starkat99/half-rs/actions/workflows/rust.yml) [![CircleCI](https://dl.circleci.com/status-badge/img/gh/starkat99/half-rs/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/starkat99/half-rs/tree/main)
+[![Crates.io](https://img.shields.io/crates/v/half.svg)](https://crates.io/crates/half/) [![Documentation](https://docs.rs/half/badge.svg)](https://docs.rs/half/) ![Crates.io](https://img.shields.io/crates/l/half) [![Build status](https://github.com/starkat99/half-rs/actions/workflows/rust.yml/badge.svg?branch=main&event=push)](https://github.com/starkat99/half-rs/actions/workflows/rust.yml) [![CircleCI](https://dl.circleci.com/status-badge/img/gh/starkat99/half-rs/tree/main.svg?style=svg)](https://dl.circleci.com/status-badge/redirect/gh/starkat99/half-rs/tree/main)
 
 This crate implements a half-precision floating point `f16` type for Rust implementing the IEEE
 754-2008 standard [`binary16`](https://en.wikipedia.org/wiki/Half-precision_floating-point_format)
@@ -49,6 +49,8 @@ See the [crate documentation](https://docs.rs/half/) for more details.
 
 - **`rand_distr`** — Enable sampling from distributions like `Uniform` and `Normal` from the
   [`rand_distr`](https://crates.io/crates/rand_distr) crate.
+
+- **`rkyv`** -- Enable zero-copy deserializtion with [`rkyv`](https://crates.io/crates/rkyv) crate.
 
 ### Hardware support
 

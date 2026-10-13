@@ -5,7 +5,7 @@
 #[cfg(feature = "v2_60")]
 #[cfg_attr(docsrs, doc(cfg(feature = "v2_60")))]
 use crate::ResolverNameLookupFlags;
-use crate::{AsyncResult, Cancellable, InetAddress, ResolverRecordType, SrvTarget};
+use crate::{ffi, AsyncResult, Cancellable, InetAddress, ResolverRecordType, SrvTarget};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -557,6 +557,7 @@ pub trait ResolverExt: IsA<Resolver> + sealed::Sealed + 'static {
     #[cfg(feature = "v2_78")]
     #[cfg_attr(docsrs, doc(cfg(feature = "v2_78")))]
     #[doc(alias = "g_resolver_set_timeout")]
+    #[doc(alias = "timeout")]
     fn set_timeout(&self, timeout_ms: u32) {
         unsafe {
             ffi::g_resolver_set_timeout(self.as_ref().to_glib_none().0, timeout_ms);
@@ -577,7 +578,7 @@ pub trait ResolverExt: IsA<Resolver> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"reload\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     reload_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -602,7 +603,7 @@ pub trait ResolverExt: IsA<Resolver> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::timeout\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_timeout_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

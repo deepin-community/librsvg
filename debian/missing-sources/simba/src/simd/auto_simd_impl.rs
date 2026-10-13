@@ -23,7 +23,7 @@ use std::{
 // This is a hack to allow use to reuse `_0` as integers or as identifier,
 // depending on whether or not `ident_to_value` has been called in scope.
 // This helps writing macros that define both `::new` and `From([T; lanes()])`.
-macro_rules! ident_to_value(
+macro_rules! ident_to_value (
     () => {
         const _0: usize = 0; const _1: usize = 1; const _2: usize = 2; const _3: usize = 3; const _4: usize = 4; const _5: usize = 5; const _6: usize = 6; const _7: usize = 7;
         const _8: usize = 8; const _9: usize = 9; const _10: usize = 10; const _11: usize = 11; const _12: usize = 12; const _13: usize = 13; const _14: usize = 14; const _15: usize = 15;
@@ -40,13 +40,12 @@ macro_rules! ident_to_value(
 ///
 /// This is needed to overcome the orphan rules.
 #[repr(align(16))]
-#[derive(Copy, Clone, PartialEq, Eq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Default)]
 #[cfg_attr(
     feature = "rkyv",
     derive(rkyv::Archive, rkyv::Deserialize, rkyv::Serialize),
     archive(as = "Self", bound(archive = "N: rkyv::Archive<Archived = N>"))
 )]
-#[cfg_attr(feature = "cuda", derive(cust_core::DeviceCopy))]
 pub struct AutoSimd<N>(pub N);
 
 /// A SIMD boolean structure that implements all the relevant traits from `num` an `simba`.
@@ -61,9 +60,18 @@ pub struct AutoSimd<N>(pub N);
 )]
 pub struct AutoBoolSimd<N>(pub N);
 
-macro_rules! impl_bool_simd(
+macro_rules! impl_bool_simd (
     ($($t: ty, $lanes: expr, $($i: ident),*;)*) => {$(
         impl_simd_value!($t, bool, $lanes, AutoSimd<$t> $(, $i)*;);
+
+        impl AutoSimd<$t> {
+            pub const ZERO: Self = AutoSimd([false; $lanes]);
+            pub const ONE: Self = AutoSimd([true; $lanes]);
+
+            pub fn new($($i: bool),*) -> Self {
+                AutoSimd([$($i),*])
+            }
+        }
 
         impl From<[bool; $lanes]> for AutoSimd<$t> {
             #[inline(always)]
@@ -201,7 +209,7 @@ macro_rules! impl_bool_simd(
     )*}
 );
 
-macro_rules! impl_scalar_subset_of_simd(
+macro_rules! impl_scalar_subset_of_simd (
     ($($t: ty),*) => {$(
         impl<N2> SubsetOf<AutoSimd<N2>> for $t
             where AutoSimd<N2>: SimdValue + Copy,
@@ -220,7 +228,7 @@ macro_rules! impl_scalar_subset_of_simd(
             fn is_in_subset(c: &AutoSimd<N2>) -> bool {
                 let elt0 = c.extract(0);
                 elt0.is_in_subset() &&
-                (1..AutoSimd::<N2>::lanes()).all(|i| c.extract(i) == elt0)
+                (1..AutoSimd::<N2>::LANES).all(|i| c.extract(i) == elt0)
             }
         }
     )*}
@@ -230,7 +238,7 @@ impl_scalar_subset_of_simd!(u8, u16, u32, u64, usize, i8, i16, i32, i64, isize, 
 #[cfg(feature = "decimal")]
 impl_scalar_subset_of_simd!(d128);
 
-macro_rules! impl_simd_value(
+macro_rules! impl_simd_value (
     ($($t: ty, $elt: ty, $lanes: expr, $bool: ty, $($i: ident),*;)*) => ($(
         impl ArrTransform for AutoSimd<$t> {
             #[inline(always)]
@@ -266,13 +274,14 @@ macro_rules! impl_simd_value(
 
         impl fmt::Display for AutoSimd<$t> {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                if Self::lanes() == 1 {
+                if Self::LANES == 1 {
                     return self.extract(0).fmt(f);
                 }
 
                 write!(f, "({}", self.extract(0))?;
 
-                for i in 1..Self::lanes() {
+                #[allow(clippy::reversed_empty_ranges)] // Needed for LANES == 1 that’s in a different code path.
+                for i in 1..Self::LANES {
                     write!(f, ", {}", self.extract(i))?;
                 }
 
@@ -280,22 +289,13 @@ macro_rules! impl_simd_value(
             }
         }
 
-        impl AutoSimd<$t> {
-            pub fn new($($i: $elt),*) -> Self {
-                AutoSimd([$($i),*])
-            }
-        }
-
         impl PrimitiveSimdValue for AutoSimd<$t> {}
 
         impl SimdValue for AutoSimd<$t> {
+            const LANES: usize = $lanes;
             type Element = $elt;
             type SimdBool = $bool;
 
-            #[inline(always)]
-            fn lanes() -> usize {
-                $lanes
-            }
 
             #[inline(always)]
             fn splat(val: Self::Element) -> Self {
@@ -333,9 +333,18 @@ macro_rules! impl_simd_value(
     )*)
 );
 
-macro_rules! impl_uint_simd(
+macro_rules! impl_uint_simd (
     ($($t: ty, $elt: ty, $lanes: expr, $bool: ty, $($i: ident),*;)*) => ($(
         impl_simd_value!($t, $elt, $lanes, $bool $(, $i)*;);
+
+        impl AutoSimd<$t> {
+            pub const ZERO: Self = AutoSimd([0 as $elt; $lanes]);
+            pub const ONE: Self = AutoSimd([1 as $elt; $lanes]);
+
+            pub fn new($($i: $elt),*) -> Self {
+                AutoSimd([$($i),*])
+            }
+        }
 
         impl From<[$elt; $lanes]> for AutoSimd<$t> {
             #[inline(always)]
@@ -618,7 +627,7 @@ macro_rules! impl_uint_simd(
     )*)
 );
 
-macro_rules! impl_int_simd(
+macro_rules! impl_int_simd (
     ($($t: ty, $elt: ty, $lanes: expr, $bool: ty, $($i: ident),*;)*) => ($(
         impl_uint_simd!($t, $elt, $lanes, $bool $(, $i)*;);
 
@@ -633,13 +642,11 @@ macro_rules! impl_int_simd(
     )*)
 );
 
-macro_rules! impl_float_simd(
+macro_rules! impl_float_simd (
     ($($t: ty, $elt: ty, $lanes: expr, $int: ty, $bool: ty, $($i: ident),*;)*) => ($(
         impl_int_simd!($t, $elt, $lanes, $bool $(, $i)*;);
 
-        // FIXME: this should be part of impl_int_simd
-        // but those methods do not seem to be implemented
-        // by packed_simd for integers.
+        // TODO: this should be part of impl_int_simd
         impl SimdSigned for AutoSimd<$t> {
             #[inline(always)]
             fn simd_abs(&self) -> Self {
@@ -669,7 +676,7 @@ macro_rules! impl_float_simd(
 
         impl Field for AutoSimd<$t> {}
 
-        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force", all(any(target_arch = "nvptx", target_arch = "nvptx64"), feature = "cuda")))]
+        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force"))]
         impl SimdRealField for AutoSimd<$t> {
             #[inline(always)]
             fn simd_atan2(self, other: Self) -> Self {
@@ -763,7 +770,7 @@ macro_rules! impl_float_simd(
             }
         }
 
-        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force", all(any(target_arch = "nvptx", target_arch = "nvptx64"), feature = "cuda")))]
+        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force"))]
         impl SimdComplexField for AutoSimd<$t> {
             type SimdRealField = Self;
 
@@ -985,12 +992,12 @@ macro_rules! impl_float_simd(
                 (self.simd_sin(), self.simd_cos())
             }
 
-//            #[inline(always]
+//            #[inline(always)]
 //            fn simd_exp_m1(self) -> Self {
 //                $libm::exp_m1(self)
 //            }
 //
-//            #[inline(always]
+//            #[inline(always)]
 //            fn simd_ln_1p(self) -> Self {
 //                $libm::ln_1p(self)
 //            }
@@ -1029,7 +1036,7 @@ macro_rules! impl_float_simd(
         // NOTE: most of the impls in there are copy-paste from the implementation of
         // ComplexField for num_complex::Complex. Unfortunately, we can't reuse the implementations
         // so easily.
-        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force", all(any(target_arch = "nvptx", target_arch = "nvptx64"), feature = "cuda")))]
+        #[cfg(any(feature = "std", feature = "libm", feature = "libm_force"))]
         impl SimdComplexField for num_complex::Complex<AutoSimd<$t>> {
             type SimdRealField = AutoSimd<$t>;
 
@@ -1042,7 +1049,7 @@ macro_rules! impl_float_simd(
             fn simd_horizontal_product(self) -> Self::Element {
                 let mut prod = self.extract(0);
                 for ii in 1..$lanes {
-                    prod = prod * self.extract(ii)
+                    prod *= self.extract(ii)
                 }
                 prod
             }
@@ -1173,7 +1180,7 @@ macro_rules! impl_float_simd(
 
             #[inline]
             fn simd_powi(self, n: i32) -> Self {
-                // FIXME: is there a more accurate solution?
+                // TODO: is there a more accurate solution?
                 let n = AutoSimd::<$t>::from_subset(&(n as f64));
                 self.simd_powf(n)
             }
@@ -1539,7 +1546,7 @@ impl_bool_simd!(
     [bool; 8], 8, _0, _1, _2, _3, _4, _5, _6, _7;
     [bool; 16], 16, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15;
     [bool; 32], 32, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31;
-    // [bool; 64], 64, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63;
+    // [bool; 64], 64, 0, _0, _1, _2, _3, _4, _5, _6, _7, _8, _9, _10, _11, _12, _13, _14, _15, _16, _17, _18, _19, _20, _21, _22, _23, _24, _25, _26, _27, _28, _29, _30, _31, _32, _33, _34, _35, _36, _37, _38, _39, _40, _41, _42, _43, _44, _45, _46, _47, _48, _49, _50, _51, _52, _53, _54, _55, _56, _57, _58, _59, _60, _61, _62, _63;
 );
 
 //

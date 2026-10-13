@@ -1,29 +1,29 @@
 #![allow(clippy::too_many_arguments)]
-use std::convert::TryFrom;
 use std::ffi::OsStr;
-use std::io;
-use std::io::Read;
+use std::io::{self, Write};
+use std::mem::size_of;
 use std::ops::{Deref, DerefMut};
 use std::path::Path;
-use std::usize;
+
+#[cfg(feature = "serde")]
+use serde::{Deserialize, Serialize};
 
 use crate::color::{ColorType, ExtendedColorType};
 use crate::error::{
     ImageError, ImageFormatHint, ImageResult, LimitError, LimitErrorKind, ParameterError,
-    ParameterErrorKind,
+    ParameterErrorKind, UnsupportedError, UnsupportedErrorKind,
 };
 use crate::math::Rect;
+use crate::metadata::Orientation;
 use crate::traits::Pixel;
 use crate::ImageBuffer;
 
 use crate::animation::Frames;
 
-#[cfg(feature = "pnm")]
-use crate::codecs::pnm::PnmSubtype;
-
 /// An enumeration of supported image formats.
 /// Not all formats support both encoding and decoding.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
 #[non_exhaustive]
 pub enum ImageFormat {
     /// An Image in PNG Format
@@ -65,11 +65,14 @@ pub enum ImageFormat {
     /// An Image in farbfeld Format
     Farbfeld,
 
-    /// An Image in AVIF format.
+    /// An Image in AVIF Format
     Avif,
 
-    /// An Image in QOI format.
+    /// An Image in QOI Format
     Qoi,
+
+    /// An Image in PCX Format
+    Pcx,
 }
 
 impl ImageFormat {
@@ -94,8 +97,8 @@ impl ImageFormat {
 
             Some(match ext.as_str() {
                 "avif" => ImageFormat::Avif,
-                "jpg" | "jpeg" => ImageFormat::Jpeg,
-                "png" => ImageFormat::Png,
+                "jpg" | "jpeg" | "jfif" => ImageFormat::Jpeg,
+                "png" | "apng" => ImageFormat::Png,
                 "gif" => ImageFormat::Gif,
                 "webp" => ImageFormat::WebP,
                 "tif" | "tiff" => ImageFormat::Tiff,
@@ -106,8 +109,9 @@ impl ImageFormat {
                 "hdr" => ImageFormat::Hdr,
                 "exr" => ImageFormat::OpenExr,
                 "pbm" | "pam" | "ppm" | "pgm" => ImageFormat::Pnm,
-                "ff" | "farbfeld" => ImageFormat::Farbfeld,
+                "ff" => ImageFormat::Farbfeld,
                 "qoi" => ImageFormat::Qoi,
+                "pcx" => ImageFormat::Pcx,
                 _ => return None,
             })
         }
@@ -183,6 +187,7 @@ impl ImageFormat {
             // Qoi's MIME type is being worked on.
             // See: https://github.com/phoboslab/qoi/issues/167
             "image/x-qoi" => Some(ImageFormat::Qoi),
+            "image/vnd.zbrush.pcx" | "image/x-pcx" => Some(ImageFormat::Pcx),
             _ => None,
         }
     }
@@ -207,6 +212,7 @@ impl ImageFormat {
     /// let mime_type = ImageFormat::Png.to_mime_type();
     /// assert_eq!(mime_type, "image/png");
     /// ```
+    #[must_use]
     pub fn to_mime_type(&self) -> &'static str {
         match self {
             ImageFormat::Avif => "image/avif",
@@ -227,13 +233,15 @@ impl ImageFormat {
             // Qoi's MIME type is being worked on.
             // See: https://github.com/phoboslab/qoi/issues/167
             ImageFormat::Qoi => "image/x-qoi",
-            // farbfield's MIME type taken from https://www.wikidata.org/wiki/Q28206109
+            // farbfeld's MIME type taken from https://www.wikidata.org/wiki/Q28206109
             ImageFormat::Farbfeld => "application/octet-stream",
+            ImageFormat::Pcx => "image/vnd.zbrush.pcx",
         }
     }
 
-    /// Return if the ImageFormat can be decoded by the lib.
+    /// Return if the `ImageFormat` can be decoded by the lib.
     #[inline]
+    #[must_use]
     pub fn can_read(&self) -> bool {
         // Needs to be updated once a new variant's decoder is added to free_functions.rs::load
         match self {
@@ -252,11 +260,13 @@ impl ImageFormat {
             ImageFormat::Farbfeld => true,
             ImageFormat::Avif => true,
             ImageFormat::Qoi => true,
+            ImageFormat::Pcx => true,
         }
     }
 
-    /// Return if the ImageFormat can be encoded by the lib.
+    /// Return if the `ImageFormat` can be encoded by the lib.
     #[inline]
+    #[must_use]
     pub fn can_write(&self) -> bool {
         // Needs to be updated once a new variant's encoder is added to free_functions.rs::save_buffer_with_format_impl
         match self {
@@ -271,10 +281,11 @@ impl ImageFormat {
             ImageFormat::Farbfeld => true,
             ImageFormat::Avif => true,
             ImageFormat::WebP => true,
-            ImageFormat::Hdr => false,
+            ImageFormat::Hdr => true,
             ImageFormat::OpenExr => true,
             ImageFormat::Dds => false,
             ImageFormat::Qoi => true,
+            ImageFormat::Pcx => false,
         }
     }
 
@@ -287,6 +298,7 @@ impl ImageFormat {
     ///
     /// The method name `extensions` remains reserved for introducing another method in the future
     /// that yields a slice of `OsStr` which is blocked by several features of const evaluation.
+    #[must_use]
     pub fn extensions_str(self) -> &'static [&'static str] {
         match self {
             ImageFormat::Png => &["png"],
@@ -305,11 +317,13 @@ impl ImageFormat {
             // According to: https://aomediacodec.github.io/av1-avif/#mime-registration
             ImageFormat::Avif => &["avif"],
             ImageFormat::Qoi => &["qoi"],
+            ImageFormat::Pcx => &["pcx"],
         }
     }
 
-    /// Return the ImageFormats which are enabled for reading.
+    /// Return the `ImageFormat`s which are enabled for reading.
     #[inline]
+    #[must_use]
     pub fn reading_enabled(&self) -> bool {
         match self {
             ImageFormat::Png => cfg!(feature = "png"),
@@ -321,17 +335,19 @@ impl ImageFormat {
             ImageFormat::Bmp => cfg!(feature = "bmp"),
             ImageFormat::Ico => cfg!(feature = "ico"),
             ImageFormat::Hdr => cfg!(feature = "hdr"),
-            ImageFormat::OpenExr => cfg!(feature = "openexr"),
+            ImageFormat::OpenExr => cfg!(feature = "exr"),
             ImageFormat::Pnm => cfg!(feature = "pnm"),
-            ImageFormat::Farbfeld => cfg!(feature = "farbfeld"),
+            ImageFormat::Farbfeld => cfg!(feature = "ff"),
             ImageFormat::Avif => cfg!(feature = "avif"),
             ImageFormat::Qoi => cfg!(feature = "qoi"),
+            ImageFormat::Pcx => cfg!(feature = "pcx"),
             ImageFormat::Dds => false,
         }
     }
 
-    /// Return the ImageFormats which are enabled for writing.
+    /// Return the `ImageFormat`s which are enabled for writing.
     #[inline]
+    #[must_use]
     pub fn writing_enabled(&self) -> bool {
         match self {
             ImageFormat::Gif => cfg!(feature = "gif"),
@@ -342,17 +358,18 @@ impl ImageFormat {
             ImageFormat::Tiff => cfg!(feature = "tiff"),
             ImageFormat::Tga => cfg!(feature = "tga"),
             ImageFormat::Pnm => cfg!(feature = "pnm"),
-            ImageFormat::Farbfeld => cfg!(feature = "farbfeld"),
+            ImageFormat::Farbfeld => cfg!(feature = "ff"),
             ImageFormat::Avif => cfg!(feature = "avif"),
             ImageFormat::WebP => cfg!(feature = "webp"),
-            ImageFormat::OpenExr => cfg!(feature = "openexr"),
+            ImageFormat::OpenExr => cfg!(feature = "exr"),
             ImageFormat::Qoi => cfg!(feature = "qoi"),
+            ImageFormat::Hdr => cfg!(feature = "hdr"),
+            ImageFormat::Pcx => false,
             ImageFormat::Dds => false,
-            ImageFormat::Hdr => false,
         }
     }
 
-    /// Return all ImageFormats
+    /// Return all `ImageFormat`s
     pub fn all() -> impl Iterator<Item = ImageFormat> {
         [
             ImageFormat::Gif,
@@ -370,108 +387,10 @@ impl ImageFormat {
             ImageFormat::Qoi,
             ImageFormat::Dds,
             ImageFormat::Hdr,
+            ImageFormat::Pcx,
         ]
         .iter()
         .copied()
-    }
-}
-
-/// An enumeration of supported image formats for encoding.
-#[derive(Clone, PartialEq, Eq, Debug)]
-#[non_exhaustive]
-pub enum ImageOutputFormat {
-    #[cfg(feature = "png")]
-    /// An Image in PNG Format
-    Png,
-
-    #[cfg(feature = "jpeg")]
-    /// An Image in JPEG Format with specified quality, up to 100
-    Jpeg(u8),
-
-    #[cfg(feature = "pnm")]
-    /// An Image in one of the PNM Formats
-    Pnm(PnmSubtype),
-
-    #[cfg(feature = "gif")]
-    /// An Image in GIF Format
-    Gif,
-
-    #[cfg(feature = "ico")]
-    /// An Image in ICO Format
-    Ico,
-
-    #[cfg(feature = "bmp")]
-    /// An Image in BMP Format
-    Bmp,
-
-    #[cfg(feature = "farbfeld")]
-    /// An Image in farbfeld Format
-    Farbfeld,
-
-    #[cfg(feature = "tga")]
-    /// An Image in TGA Format
-    Tga,
-
-    #[cfg(feature = "exr")]
-    /// An Image in OpenEXR Format
-    OpenExr,
-
-    #[cfg(feature = "tiff")]
-    /// An Image in TIFF Format
-    Tiff,
-
-    #[cfg(feature = "avif-encoder")]
-    /// An image in AVIF Format
-    Avif,
-
-    #[cfg(feature = "qoi")]
-    /// An image in QOI Format
-    Qoi,
-
-    #[cfg(feature = "webp")]
-    /// An image in WebP Format.
-    WebP,
-
-    /// A value for signalling an error: An unsupported format was requested
-    // Note: When TryFrom is stabilized, this value should not be needed, and
-    // a TryInto<ImageOutputFormat> should be used instead of an Into<ImageOutputFormat>.
-    Unsupported(String),
-}
-
-impl From<ImageFormat> for ImageOutputFormat {
-    fn from(fmt: ImageFormat) -> Self {
-        match fmt {
-            #[cfg(feature = "png")]
-            ImageFormat::Png => ImageOutputFormat::Png,
-            #[cfg(feature = "jpeg")]
-            ImageFormat::Jpeg => ImageOutputFormat::Jpeg(75),
-            #[cfg(feature = "pnm")]
-            ImageFormat::Pnm => ImageOutputFormat::Pnm(PnmSubtype::ArbitraryMap),
-            #[cfg(feature = "gif")]
-            ImageFormat::Gif => ImageOutputFormat::Gif,
-            #[cfg(feature = "ico")]
-            ImageFormat::Ico => ImageOutputFormat::Ico,
-            #[cfg(feature = "bmp")]
-            ImageFormat::Bmp => ImageOutputFormat::Bmp,
-            #[cfg(feature = "farbfeld")]
-            ImageFormat::Farbfeld => ImageOutputFormat::Farbfeld,
-            #[cfg(feature = "tga")]
-            ImageFormat::Tga => ImageOutputFormat::Tga,
-            #[cfg(feature = "exr")]
-            ImageFormat::OpenExr => ImageOutputFormat::OpenExr,
-            #[cfg(feature = "tiff")]
-            ImageFormat::Tiff => ImageOutputFormat::Tiff,
-
-            #[cfg(feature = "avif-encoder")]
-            ImageFormat::Avif => ImageOutputFormat::Avif,
-            #[cfg(feature = "webp")]
-            ImageFormat::WebP => ImageOutputFormat::WebP,
-
-            #[cfg(feature = "qoi")]
-            ImageFormat::Qoi => ImageOutputFormat::Qoi,
-
-            f => ImageOutputFormat::Unsupported(format!("{:?}", f)),
-        }
     }
 }
 
@@ -488,9 +407,9 @@ pub(crate) struct ImageReadBuffer {
     offset: u64,
 }
 impl ImageReadBuffer {
-    /// Create a new ImageReadBuffer.
+    /// Create a new `ImageReadBuffer`.
     ///
-    /// Panics if scanline_bytes doesn't fit into a usize, because that would mean reading anything
+    /// Panics if `scanline_bytes` doesn't fit into a usize, because that would mean reading anything
     /// from the image would take more RAM than the entire virtual address space. In other words,
     /// actually using this struct would instantly OOM so just get it out of the way now.
     #[allow(dead_code)]
@@ -554,24 +473,27 @@ impl ImageReadBuffer {
 /// starting from ```x``` and ```y``` and having ```length``` and ```width```
 #[allow(dead_code)]
 // When no image formats that use it are enabled
-pub(crate) fn load_rect<'a, D, F, F1, F2, E>(
+pub(crate) fn load_rect<D, F1, F2, E>(
     x: u32,
     y: u32,
     width: u32,
     height: u32,
     buf: &mut [u8],
-    progress_callback: F,
+    row_pitch: usize,
     decoder: &mut D,
+    scanline_bytes: usize,
     mut seek_scanline: F1,
     mut read_scanline: F2,
 ) -> ImageResult<()>
 where
-    D: ImageDecoder<'a>,
-    F: Fn(Progress),
+    D: ImageDecoder,
     F1: FnMut(&mut D, u64) -> io::Result<()>,
     F2: FnMut(&mut D, &mut [u8]) -> Result<(), E>,
     ImageError: From<E>,
 {
+    let scanline_bytes = u64::try_from(scanline_bytes).unwrap();
+    let row_pitch = u64::try_from(row_pitch).unwrap();
+
     let (x, y, width, height) = (
         u64::from(x),
         u64::from(y),
@@ -581,19 +503,15 @@ where
     let dimensions = decoder.dimensions();
     let bytes_per_pixel = u64::from(decoder.color_type().bytes_per_pixel());
     let row_bytes = bytes_per_pixel * u64::from(dimensions.0);
-    #[allow(deprecated)]
-    let scanline_bytes = decoder.scanline_bytes();
     let total_bytes = width * height * bytes_per_pixel;
 
-    if buf.len() < usize::try_from(total_bytes).unwrap_or(usize::max_value()) {
-        panic!(
-            "output buffer too short\n expected `{}`, provided `{}`",
-            total_bytes,
-            buf.len()
-        );
-    }
+    assert!(
+        buf.len() >= usize::try_from(total_bytes).unwrap_or(usize::MAX),
+        "output buffer too short\n expected `{}`, provided `{}`",
+        total_bytes,
+        buf.len()
+    );
 
-    let mut bytes_read = 0u64;
     let mut current_scanline = 0;
     let mut tmp = Vec::new();
     let mut tmp_scanline = None;
@@ -601,70 +519,59 @@ where
     {
         // Read a range of the image starting from byte number `start` and continuing until byte
         // number `end`. Updates `current_scanline` and `bytes_read` appropriately.
-        let mut read_image_range = |mut start: u64, end: u64| -> ImageResult<()> {
-            // If the first scanline we need is already stored in the temporary buffer, then handle
-            // it first.
-            let target_scanline = start / scanline_bytes;
-            if tmp_scanline == Some(target_scanline) {
-                let position = target_scanline * scanline_bytes;
-                let offset = start.saturating_sub(position);
-                let len = (end - start)
-                    .min(scanline_bytes - offset)
-                    .min(end - position);
-
-                buf[(bytes_read as usize)..][..len as usize]
-                    .copy_from_slice(&tmp[offset as usize..][..len as usize]);
-                bytes_read += len;
-                start += len;
-
-                progress_callback(Progress {
-                    current: bytes_read,
-                    total: total_bytes,
-                });
-
-                if start == end {
-                    return Ok(());
-                }
-            }
-
-            let target_scanline = start / scanline_bytes;
-            if target_scanline != current_scanline {
-                seek_scanline(decoder, target_scanline)?;
-                current_scanline = target_scanline;
-            }
-
-            let mut position = current_scanline * scanline_bytes;
-            while position < end {
-                if position >= start && end - position >= scanline_bytes {
-                    read_scanline(
-                        decoder,
-                        &mut buf[(bytes_read as usize)..][..(scanline_bytes as usize)],
-                    )?;
-                    bytes_read += scanline_bytes;
-                } else {
-                    tmp.resize(scanline_bytes as usize, 0u8);
-                    read_scanline(decoder, &mut tmp)?;
-                    tmp_scanline = Some(current_scanline);
-
+        let mut read_image_range =
+            |mut start: u64, end: u64, mut output: &mut [u8]| -> ImageResult<()> {
+                // If the first scanline we need is already stored in the temporary buffer, then handle
+                // it first.
+                let target_scanline = start / scanline_bytes;
+                if tmp_scanline == Some(target_scanline) {
+                    let position = target_scanline * scanline_bytes;
                     let offset = start.saturating_sub(position);
                     let len = (end - start)
                         .min(scanline_bytes - offset)
                         .min(end - position);
 
-                    buf[(bytes_read as usize)..][..len as usize]
-                        .copy_from_slice(&tmp[offset as usize..][..len as usize]);
-                    bytes_read += len;
+                    output
+                        .write_all(&tmp[offset as usize..][..len as usize])
+                        .unwrap();
+                    start += len;
+
+                    if start == end {
+                        return Ok(());
+                    }
                 }
 
-                current_scanline += 1;
-                position += scanline_bytes;
-                progress_callback(Progress {
-                    current: bytes_read,
-                    total: total_bytes,
-                });
-            }
-            Ok(())
-        };
+                let target_scanline = start / scanline_bytes;
+                if target_scanline != current_scanline {
+                    seek_scanline(decoder, target_scanline)?;
+                    current_scanline = target_scanline;
+                }
+
+                let mut position = current_scanline * scanline_bytes;
+                while position < end {
+                    if position >= start && end - position >= scanline_bytes {
+                        read_scanline(decoder, &mut output[..(scanline_bytes as usize)])?;
+                        output = &mut output[scanline_bytes as usize..];
+                    } else {
+                        tmp.resize(scanline_bytes as usize, 0u8);
+                        read_scanline(decoder, &mut tmp)?;
+                        tmp_scanline = Some(current_scanline);
+
+                        let offset = start.saturating_sub(position);
+                        let len = (end - start)
+                            .min(scanline_bytes - offset)
+                            .min(end - position);
+
+                        output
+                            .write_all(&tmp[offset as usize..][..len as usize])
+                            .unwrap();
+                    }
+
+                    current_scanline += 1;
+                    position += scanline_bytes;
+                }
+                Ok(())
+            };
 
         if x + width > u64::from(dimensions.0)
             || y + height > u64::from(dimensions.1)
@@ -675,25 +582,21 @@ where
                 ParameterErrorKind::DimensionMismatch,
             )));
         }
-        if scanline_bytes > usize::max_value() as u64 {
+        if scanline_bytes > usize::MAX as u64 {
             return Err(ImageError::Limits(LimitError::from_kind(
                 LimitErrorKind::InsufficientMemory,
             )));
         }
 
-        progress_callback(Progress {
-            current: 0,
-            total: total_bytes,
-        });
-        if x == 0 && width == u64::from(dimensions.0) {
+        if x == 0 && width == u64::from(dimensions.0) && row_pitch == row_bytes {
             let start = x * bytes_per_pixel + y * row_bytes;
             let end = (x + width) * bytes_per_pixel + (y + height - 1) * row_bytes;
-            read_image_range(start, end)?;
+            read_image_range(start, end, buf)?;
         } else {
-            for row in y..(y + height) {
+            for (output_slice, row) in buf.chunks_mut(row_pitch as usize).zip(y..(y + height)) {
                 let start = x * bytes_per_pixel + row * row_bytes;
                 let end = (x + width) * bytes_per_pixel + row * row_bytes;
-                read_image_range(start, end)?;
+                read_image_range(start, end, output_slice)?;
             }
         }
     }
@@ -706,62 +609,24 @@ where
 /// of the output buffer is guaranteed.
 ///
 /// Panics if there isn't enough memory to decode the image.
-pub(crate) fn decoder_to_vec<'a, T>(decoder: impl ImageDecoder<'a>) -> ImageResult<Vec<T>>
+pub(crate) fn decoder_to_vec<T>(decoder: impl ImageDecoder) -> ImageResult<Vec<T>>
 where
     T: crate::traits::Primitive + bytemuck::Pod,
 {
     let total_bytes = usize::try_from(decoder.total_bytes());
-    if total_bytes.is_err() || total_bytes.unwrap() > isize::max_value() as usize {
+    if total_bytes.is_err() || total_bytes.unwrap() > isize::MAX as usize {
         return Err(ImageError::Limits(LimitError::from_kind(
             LimitErrorKind::InsufficientMemory,
         )));
     }
 
-    let mut buf = vec![num_traits::Zero::zero(); total_bytes.unwrap() / std::mem::size_of::<T>()];
+    let mut buf = vec![num_traits::Zero::zero(); total_bytes.unwrap() / size_of::<T>()];
     decoder.read_image(bytemuck::cast_slice_mut(buf.as_mut_slice()))?;
     Ok(buf)
 }
 
-/// Represents the progress of an image operation.
-///
-/// Note that this is not necessarily accurate and no change to the values passed to the progress
-/// function during decoding will be considered breaking. A decoder could in theory report the
-/// progress `(0, 0)` if progress is unknown, without violating the interface contract of the type.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Progress {
-    current: u64,
-    total: u64,
-}
-
-impl Progress {
-    /// Create Progress. Result in invalid progress if you provide a greater `current` than `total`.
-    pub(crate) fn new(current: u64, total: u64) -> Self {
-        Self { current, total }
-    }
-
-    /// A measure of completed decoding.
-    pub fn current(self) -> u64 {
-        self.current
-    }
-
-    /// A measure of all necessary decoding work.
-    ///
-    /// This is in general greater or equal than `current`.
-    pub fn total(self) -> u64 {
-        self.total
-    }
-
-    /// Calculate a measure for remaining decoding work.
-    pub fn remaining(self) -> u64 {
-        self.total.max(self.current) - self.current
-    }
-}
-
 /// The trait that all decoders implement
-pub trait ImageDecoder<'a>: Sized {
-    /// The type of reader produced by `into_reader`.
-    type Reader: Read + 'a;
-
+pub trait ImageDecoder {
     /// Returns a tuple containing the width and height of the image
     fn dimensions(&self) -> (u32, u32);
 
@@ -773,38 +638,43 @@ pub trait ImageDecoder<'a>: Sized {
         self.color_type().into()
     }
 
-    /// Returns the ICC color profile embedded in the image
+    /// Returns the ICC color profile embedded in the image, or `Ok(None)` if the image does not have one.
     ///
-    /// For formats that don't support embedded profiles this function will always return `None`.
-    /// This feature is currently only supported for the JPEG, PNG, and AVIF formats.
-    fn icc_profile(&mut self) -> Option<Vec<u8>> {
-        None
+    /// For formats that don't support embedded profiles this function should always return `Ok(None)`.
+    fn icc_profile(&mut self) -> ImageResult<Option<Vec<u8>>> {
+        Ok(None)
     }
 
-    /// Returns a reader that can be used to obtain the bytes of the image. For the best
-    /// performance, always try to read at least `scanline_bytes` from the reader at a time. Reading
-    /// fewer bytes will cause the reader to perform internal buffering.
-    #[deprecated = "Planned for removal. See https://github.com/image-rs/image/issues/1989"]
-    fn into_reader(self) -> ImageResult<Self::Reader>;
+    /// Returns the raw [Exif](https://en.wikipedia.org/wiki/Exif) chunk, if it is present.
+    /// A third-party crate such as [`kamadak-exif`](https://docs.rs/kamadak-exif/) is required to actually parse it.
+    ///
+    /// For formats that don't support embedded profiles this function should always return `Ok(None)`.
+    fn exif_metadata(&mut self) -> ImageResult<Option<Vec<u8>>> {
+        Ok(None)
+    }
+
+    /// Returns the orientation of the image.
+    ///
+    /// This is usually obtained from the Exif metadata, if present. Formats that don't support
+    /// indicating orientation in their image metadata will return `Ok(Orientation::NoTransforms)`.
+    fn orientation(&mut self) -> ImageResult<Orientation> {
+        Ok(self
+            .exif_metadata()?
+            .and_then(|chunk| Orientation::from_exif_chunk(&chunk))
+            .unwrap_or(Orientation::NoTransforms))
+    }
 
     /// Returns the total number of bytes in the decoded image.
     ///
     /// This is the size of the buffer that must be passed to `read_image` or
-    /// `read_image_with_progress`. The returned value may exceed usize::MAX, in
+    /// `read_image_with_progress`. The returned value may exceed `usize::MAX`, in
     /// which case it isn't actually possible to construct a buffer to decode all the image data
-    /// into. If, however, the size does not fit in a u64 then u64::MAX is returned.
+    /// into. If, however, the size does not fit in a u64 then `u64::MAX` is returned.
     fn total_bytes(&self) -> u64 {
         let dimensions = self.dimensions();
         let total_pixels = u64::from(dimensions.0) * u64::from(dimensions.1);
         let bytes_per_pixel = u64::from(self.color_type().bytes_per_pixel());
         total_pixels.saturating_mul(bytes_per_pixel)
-    }
-
-    /// Returns the minimum number of bytes that can be efficiently read from this decoder. This may
-    /// be as few as 1 or as many as `total_bytes()`.
-    #[deprecated = "Planned for removal. See https://github.com/image-rs/image/issues/1989"]
-    fn scanline_bytes(&self) -> u64 {
-        self.total_bytes()
     }
 
     /// Returns all the bytes in the image.
@@ -816,7 +686,7 @@ pub trait ImageDecoder<'a>: Sized {
     ///
     /// # Panics
     ///
-    /// This function panics if buf.len() != self.total_bytes().
+    /// This function panics if `buf.len() != self.total_bytes()`.
     ///
     /// # Examples
     ///
@@ -828,49 +698,11 @@ pub trait ImageDecoder<'a>: Sized {
     ///     buf
     /// }
     /// ```
-    fn read_image(self, buf: &mut [u8]) -> ImageResult<()> {
-        #[allow(deprecated)]
-        self.read_image_with_progress(buf, |_| {})
-    }
+    fn read_image(self, buf: &mut [u8]) -> ImageResult<()>
+    where
+        Self: Sized;
 
-    /// Same as `read_image` but periodically calls the provided callback to give updates on loading
-    /// progress.
-    #[deprecated = "Use read_image instead. See https://github.com/image-rs/image/issues/1989"]
-    fn read_image_with_progress<F: Fn(Progress)>(
-        self,
-        buf: &mut [u8],
-        progress_callback: F,
-    ) -> ImageResult<()> {
-        assert_eq!(u64::try_from(buf.len()), Ok(self.total_bytes()));
-
-        let total_bytes = self.total_bytes() as usize;
-        #[allow(deprecated)]
-        let scanline_bytes = self.scanline_bytes() as usize;
-        let target_read_size = if scanline_bytes < 4096 {
-            (4096 / scanline_bytes) * scanline_bytes
-        } else {
-            scanline_bytes
-        };
-
-        #[allow(deprecated)]
-        let mut reader = self.into_reader()?;
-
-        let mut bytes_read = 0;
-        while bytes_read < total_bytes {
-            let read_size = target_read_size.min(total_bytes - bytes_read);
-            reader.read_exact(&mut buf[bytes_read..][..read_size])?;
-            bytes_read += read_size;
-
-            progress_callback(Progress {
-                current: bytes_read as u64,
-                total: total_bytes as u64,
-            });
-        }
-
-        Ok(())
-    }
-
-    /// Set decoding limits for this decoder. See [`Limits`] for the different kinds of
+    /// Set the decoder to have the specified limits. See [`Limits`] for the different kinds of
     /// limits that is possible to set.
     ///
     /// Note to implementors: make sure you call [`Limits::check_support`] so that
@@ -881,19 +713,68 @@ pub trait ImageDecoder<'a>: Sized {
     /// [`Limits`]: ./io/struct.Limits.html
     /// [`Limits::check_support`]: ./io/struct.Limits.html#method.check_support
     /// [`Limits::check_dimensions`]: ./io/struct.Limits.html#method.check_dimensions
-    fn set_limits(&mut self, limits: crate::io::Limits) -> ImageResult<()> {
-        limits.check_support(&crate::io::LimitSupport::default())?;
-
+    fn set_limits(&mut self, limits: crate::Limits) -> ImageResult<()> {
+        limits.check_support(&crate::LimitSupport::default())?;
         let (width, height) = self.dimensions();
         limits.check_dimensions(width, height)?;
-
         Ok(())
+    }
+
+    /// Use `read_image` instead; this method is an implementation detail needed so the trait can
+    /// be object safe.
+    ///
+    /// Note to implementors: This method should be implemented by calling `read_image` on
+    /// the boxed decoder...
+    /// ```no_build
+    ///     fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+    ///        (*self).read_image(buf)
+    ///    }
+    /// ```
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()>;
+}
+
+impl<T: ?Sized + ImageDecoder> ImageDecoder for Box<T> {
+    fn dimensions(&self) -> (u32, u32) {
+        (**self).dimensions()
+    }
+    fn color_type(&self) -> ColorType {
+        (**self).color_type()
+    }
+    fn original_color_type(&self) -> ExtendedColorType {
+        (**self).original_color_type()
+    }
+    fn icc_profile(&mut self) -> ImageResult<Option<Vec<u8>>> {
+        (**self).icc_profile()
+    }
+    fn exif_metadata(&mut self) -> ImageResult<Option<Vec<u8>>> {
+        (**self).exif_metadata()
+    }
+    fn total_bytes(&self) -> u64 {
+        (**self).total_bytes()
+    }
+    fn read_image(self, buf: &mut [u8]) -> ImageResult<()>
+    where
+        Self: Sized,
+    {
+        T::read_image_boxed(self, buf)
+    }
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        T::read_image_boxed(*self, buf)
+    }
+    fn set_limits(&mut self, limits: crate::Limits) -> ImageResult<()> {
+        (**self).set_limits(limits)
     }
 }
 
 /// Specialized image decoding not be supported by all formats
-pub trait ImageDecoderRect<'a>: ImageDecoder<'a> + Sized {
-    /// Decode a rectangular section of the image; see [`read_rect_with_progress()`](#fn.read_rect_with_progress).
+pub trait ImageDecoderRect: ImageDecoder {
+    /// Decode a rectangular section of the image.
+    ///
+    /// This function takes a slice of bytes and writes the pixel data of the image into it.
+    /// The rectangle is specified by the x and y coordinates of the top left corner, the width
+    /// and height of the rectangle, and the row pitch of the buffer. The row pitch is the number
+    /// of bytes between the start of one row and the start of the next row. The row pitch must be
+    /// at least as large as the width of the rectangle in bytes.
     fn read_rect(
         &mut self,
         x: u32,
@@ -901,36 +782,11 @@ pub trait ImageDecoderRect<'a>: ImageDecoder<'a> + Sized {
         width: u32,
         height: u32,
         buf: &mut [u8],
-    ) -> ImageResult<()> {
-        #[allow(deprecated)]
-        self.read_rect_with_progress(x, y, width, height, buf, |_| {})
-    }
-
-    /// Decode a rectangular section of the image, periodically reporting progress.
-    ///
-    /// The output buffer will be filled with fields specified by
-    /// [`ImageDecoder::color_type()`](trait.ImageDecoder.html#fn.color_type),
-    /// in that order, each field represented in native-endian.
-    ///
-    /// The progress callback will be called at least once at the start and the end of decoding,
-    /// implementations are encouraged to call this more often,
-    /// with a frequency meaningful for display to the end-user.
-    ///
-    /// This function will panic if the output buffer isn't at least
-    /// `color_type().bytes_per_pixel() * color_type().channel_count() * width * height` bytes long.
-    #[deprecated = "Use read_image instead. See https://github.com/image-rs/image/issues/1989"]
-    fn read_rect_with_progress<F: Fn(Progress)>(
-        &mut self,
-        x: u32,
-        y: u32,
-        width: u32,
-        height: u32,
-        buf: &mut [u8],
-        progress_callback: F,
+        row_pitch: usize,
     ) -> ImageResult<()>;
 }
 
-/// AnimationDecoder trait
+/// `AnimationDecoder` trait
 pub trait AnimationDecoder<'a> {
     /// Consume the decoder producing a series of frames.
     fn into_frames(self) -> Frames<'a>;
@@ -957,8 +813,27 @@ pub trait ImageEncoder {
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()>;
+
+    /// Set the ICC profile to use for the image.
+    ///
+    /// This function is a no-op for formats that don't support ICC profiles.
+    /// For formats that do support ICC profiles, the profile will be embedded
+    /// in the image when it is saved.
+    ///
+    /// # Errors
+    ///
+    /// This function returns an error if the format does not support ICC profiles.
+    fn set_icc_profile(&mut self, icc_profile: Vec<u8>) -> Result<(), UnsupportedError> {
+        let _ = icc_profile;
+        Err(UnsupportedError::from_format_and_kind(
+            ImageFormatHint::Unknown,
+            UnsupportedErrorKind::GenericFeature(
+                "ICC profiles are not supported for this format".into(),
+            ),
+        ))
+    }
 }
 
 /// Immutable pixel iterator
@@ -971,7 +846,7 @@ pub struct Pixels<'a, I: ?Sized + 'a> {
     height: u32,
 }
 
-impl<'a, I: GenericImageView> Iterator for Pixels<'a, I> {
+impl<I: GenericImageView> Iterator for Pixels<'_, I> {
     type Item = (u32, u32, I::Pixel);
 
     fn next(&mut self) -> Option<(u32, u32, I::Pixel)> {
@@ -1026,15 +901,10 @@ pub trait GenericImageView {
         h
     }
 
-    /// The bounding rectangle of this image.
-    #[deprecated = "This method has inconsistent behavior between implementations (#1829). Use `dimensions` instead"]
-    fn bounds(&self) -> (u32, u32, u32, u32);
-
     /// Returns true if this x, y coordinate is contained inside the image.
     fn in_bounds(&self, x: u32, y: u32) -> bool {
-        #[allow(deprecated)]
-        let (ix, iy, iw, ih) = self.bounds();
-        x >= ix && x < ix + iw && y >= iy && y < iy + ih
+        let (width, height) = self.dimensions();
+        x < width && y < height
     }
 
     /// Returns the pixel located at (x, y). Indexed from top left.
@@ -1081,8 +951,8 @@ pub trait GenericImageView {
     where
         Self: Sized,
     {
-        assert!(x as u64 + width as u64 <= self.width() as u64);
-        assert!(y as u64 + height as u64 <= self.height() as u64);
+        assert!(u64::from(x) + u64::from(width) <= u64::from(self.width()));
+        assert!(u64::from(y) + u64::from(height) <= u64::from(self.height()));
         SubImage::new(self, x, y, width, height)
     }
 }
@@ -1223,13 +1093,13 @@ pub trait GenericImage: GenericImageView {
 
     /// Returns a mutable subimage that is a view into this image.
     /// If you want an immutable subimage instead, use [`GenericImageView::view`]
-    /// The coordinates set the position of the top left corner of the SubImage.
+    /// The coordinates set the position of the top left corner of the `SubImage`.
     fn sub_image(&mut self, x: u32, y: u32, width: u32, height: u32) -> SubImage<&mut Self>
     where
         Self: Sized,
     {
-        assert!(x as u64 + width as u64 <= self.width() as u64);
-        assert!(y as u64 + height as u64 <= self.height() as u64);
+        assert!(u64::from(x) + u64::from(width) <= u64::from(self.width()));
+        assert!(u64::from(y) + u64::from(height) <= u64::from(self.height()));
         SubImage::new(self, x, y, width, height)
     }
 }
@@ -1281,7 +1151,7 @@ type DerefSubpixel<I> = <DerefPixel<I> as Pixel>::Subpixel;
 
 impl<I> SubImage<I> {
     /// Construct a new subimage
-    /// The coordinates set the position of the top left corner of the SubImage.
+    /// The coordinates set the position of the top left corner of the `SubImage`.
     pub fn new(image: I, x: u32, y: u32, width: u32, height: u32) -> SubImage<I> {
         SubImage {
             inner: SubImageInner {
@@ -1302,14 +1172,19 @@ impl<I> SubImage<I> {
         self.inner.ystride = height;
     }
 
-    /// Convert this subimage to an ImageBuffer
+    /// The offsets of this subimage relative to the underlying image.
+    pub fn offsets(&self) -> (u32, u32) {
+        (self.inner.xoffset, self.inner.yoffset)
+    }
+
+    /// Convert this subimage to an `ImageBuffer`
     pub fn to_image(&self) -> ImageBuffer<DerefPixel<I>, Vec<DerefSubpixel<I>>>
     where
         I: Deref,
         I::Target: GenericImageView + 'static,
     {
         let mut out = ImageBuffer::new(self.inner.xstride, self.inner.ystride);
-        let borrowed = self.inner.image.deref();
+        let borrowed = &*self.inner.image;
 
         for y in 0..self.inner.ystride {
             for x in 0..self.inner.xstride {
@@ -1348,8 +1223,8 @@ where
     /// ```
     pub fn view(&self, x: u32, y: u32, width: u32, height: u32) -> SubImage<&I::Target> {
         use crate::GenericImageView as _;
-        assert!(x as u64 + width as u64 <= self.inner.width() as u64);
-        assert!(y as u64 + height as u64 <= self.inner.height() as u64);
+        assert!(u64::from(x) + u64::from(width) <= u64::from(self.inner.width()));
+        assert!(u64::from(y) + u64::from(height) <= u64::from(self.inner.height()));
         let x = self.inner.xoffset.saturating_add(x);
         let y = self.inner.yoffset.saturating_add(y);
         SubImage::new(&*self.inner.image, x, y, width, height)
@@ -1376,8 +1251,8 @@ where
         width: u32,
         height: u32,
     ) -> SubImage<&mut I::Target> {
-        assert!(x as u64 + width as u64 <= self.inner.width() as u64);
-        assert!(y as u64 + height as u64 <= self.inner.height() as u64);
+        assert!(u64::from(x) + u64::from(width) <= u64::from(self.inner.width()));
+        assert!(u64::from(y) + u64::from(height) <= u64::from(self.inner.height()));
         let x = self.inner.xoffset.saturating_add(x);
         let y = self.inner.yoffset.saturating_add(y);
         SubImage::new(&mut *self.inner.image, x, y, width, height)
@@ -1420,10 +1295,6 @@ where
         (self.xstride, self.ystride)
     }
 
-    fn bounds(&self) -> (u32, u32, u32, u32) {
-        (self.xoffset, self.yoffset, self.xstride, self.ystride)
-    }
-
     fn get_pixel(&self, x: u32, y: u32) -> Self::Pixel {
         self.image.get_pixel(x + self.xoffset, y + self.yoffset)
     }
@@ -1441,13 +1312,13 @@ where
 
     fn put_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
         self.image
-            .put_pixel(x + self.xoffset, y + self.yoffset, pixel)
+            .put_pixel(x + self.xoffset, y + self.yoffset, pixel);
     }
 
     /// DEPRECATED: This method will be removed. Blend the pixel directly instead.
     fn blend_pixel(&mut self, x: u32, y: u32, pixel: Self::Pixel) {
         self.image
-            .blend_pixel(x + self.xoffset, y + self.yoffset, pixel)
+            .blend_pixel(x + self.xoffset, y + self.yoffset, pixel);
     }
 }
 
@@ -1597,19 +1468,18 @@ mod tests {
             scanline_number: u64,
             scanline_bytes: u64,
         }
-        impl<'a> ImageDecoder<'a> for MockDecoder {
-            type Reader = Box<dyn io::Read>;
+        impl ImageDecoder for MockDecoder {
             fn dimensions(&self) -> (u32, u32) {
                 (5, 5)
             }
             fn color_type(&self) -> ColorType {
                 ColorType::L8
             }
-            fn into_reader(self) -> ImageResult<Self::Reader> {
+            fn read_image(self, _buf: &mut [u8]) -> ImageResult<()> {
                 unimplemented!()
             }
-            fn scanline_bytes(&self) -> u64 {
-                self.scanline_bytes
+            fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+                (*self).read_image(buf)
             }
         }
 
@@ -1643,11 +1513,12 @@ mod tests {
                 5,
                 5,
                 &mut output,
-                |_| {},
+                5,
                 &mut MockDecoder {
                     scanline_number: 0,
                     scanline_bytes,
                 },
+                scanline_bytes as usize,
                 seek_scanline,
                 read_scanline,
             )
@@ -1662,11 +1533,12 @@ mod tests {
                 1,
                 1,
                 &mut output,
-                |_| {},
+                1,
                 &mut MockDecoder {
                     scanline_number: 0,
                     scanline_bytes,
                 },
+                scanline_bytes as usize,
                 seek_scanline,
                 read_scanline,
             )
@@ -1680,11 +1552,12 @@ mod tests {
                 2,
                 2,
                 &mut output,
-                |_| {},
+                2,
                 &mut MockDecoder {
                     scanline_number: 0,
                     scanline_bytes,
                 },
+                scanline_bytes as usize,
                 seek_scanline,
                 read_scanline,
             )
@@ -1698,11 +1571,12 @@ mod tests {
                 2,
                 4,
                 &mut output,
-                |_| {},
+                2,
                 &mut MockDecoder {
                     scanline_number: 0,
                     scanline_bytes,
                 },
+                scanline_bytes as usize,
                 seek_scanline,
                 read_scanline,
             )
@@ -1719,19 +1593,18 @@ mod tests {
         ];
 
         struct MockDecoder;
-        impl<'a> ImageDecoder<'a> for MockDecoder {
-            type Reader = Box<dyn io::Read>;
+        impl ImageDecoder for MockDecoder {
             fn dimensions(&self) -> (u32, u32) {
                 (5, 5)
             }
             fn color_type(&self) -> ColorType {
                 ColorType::L8
             }
-            fn into_reader(self) -> ImageResult<Self::Reader> {
+            fn read_image(self, _buf: &mut [u8]) -> ImageResult<()> {
                 unimplemented!()
             }
-            fn scanline_bytes(&self) -> u64 {
-                25
+            fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+                (*self).read_image(buf)
             }
         }
 
@@ -1756,8 +1629,9 @@ mod tests {
             2,
             4,
             &mut output,
-            |_| {},
+            2,
             &mut MockDecoder,
+            DATA.len(),
             seek_scanline,
             read_scanline,
         )
@@ -1789,6 +1663,7 @@ mod tests {
         assert_eq!(from_path("./a.Ppm").unwrap(), ImageFormat::Pnm);
         assert_eq!(from_path("./a.pgm").unwrap(), ImageFormat::Pnm);
         assert_eq!(from_path("./a.AViF").unwrap(), ImageFormat::Avif);
+        assert_eq!(from_path("./a.PCX").unwrap(), ImageFormat::Pcx);
         assert!(from_path("./a.txt").is_err());
         assert!(from_path("./a").is_err());
     }
@@ -1944,7 +1819,7 @@ mod tests {
     fn image_formats_are_recognized() {
         use ImageFormat::*;
         const ALL_FORMATS: &[ImageFormat] = &[
-            Avif, Png, Jpeg, Gif, WebP, Pnm, Tiff, Tga, Dds, Bmp, Ico, Hdr, Farbfeld, OpenExr,
+            Avif, Png, Jpeg, Gif, WebP, Pnm, Tiff, Tga, Dds, Bmp, Ico, Hdr, Farbfeld, OpenExr, Pcx,
         ];
         for &format in ALL_FORMATS {
             let mut file = Path::new("file.nothing").to_owned();
@@ -1961,19 +1836,21 @@ mod tests {
     #[test]
     fn total_bytes_overflow() {
         struct D;
-        impl<'a> ImageDecoder<'a> for D {
-            type Reader = std::io::Cursor<Vec<u8>>;
+        impl ImageDecoder for D {
             fn color_type(&self) -> ColorType {
                 ColorType::Rgb8
             }
             fn dimensions(&self) -> (u32, u32) {
-                (0xffffffff, 0xffffffff)
+                (0xffff_ffff, 0xffff_ffff)
             }
-            fn into_reader(self) -> ImageResult<Self::Reader> {
-                unreachable!()
+            fn read_image(self, _buf: &mut [u8]) -> ImageResult<()> {
+                unimplemented!()
+            }
+            fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+                (*self).read_image(buf)
             }
         }
-        assert_eq!(D.total_bytes(), u64::max_value());
+        assert_eq!(D.total_bytes(), u64::MAX);
 
         let v: ImageResult<Vec<u8>> = super::decoder_to_vec(D);
         assert!(v.is_err());
@@ -1981,7 +1858,7 @@ mod tests {
 
     #[test]
     fn all() {
-        let all_formats: HashSet<ImageFormat> = HashSet::from_iter(ImageFormat::all());
+        let all_formats: HashSet<ImageFormat> = ImageFormat::all().collect();
         assert!(all_formats.contains(&ImageFormat::Avif));
         assert!(all_formats.contains(&ImageFormat::Gif));
         assert!(all_formats.contains(&ImageFormat::Bmp));
@@ -1992,13 +1869,20 @@ mod tests {
     #[test]
     fn reading_enabled() {
         assert_eq!(cfg!(feature = "jpeg"), ImageFormat::Jpeg.reading_enabled());
+        assert_eq!(
+            cfg!(feature = "ff"),
+            ImageFormat::Farbfeld.reading_enabled()
+        );
         assert!(!ImageFormat::Dds.reading_enabled());
     }
 
     #[test]
     fn writing_enabled() {
         assert_eq!(cfg!(feature = "jpeg"), ImageFormat::Jpeg.writing_enabled());
-        assert!(!ImageFormat::Hdr.writing_enabled());
+        assert_eq!(
+            cfg!(feature = "ff"),
+            ImageFormat::Farbfeld.writing_enabled()
+        );
         assert!(!ImageFormat::Dds.writing_enabled());
     }
 }

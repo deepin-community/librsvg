@@ -81,6 +81,22 @@ fn impl_i64x2_blend() {
 }
 
 #[test]
+fn impl_i64x2_abs() {
+  let a = i64x2::from([-1, i64::MIN]);
+  let expected = i64x2::from([1, i64::MIN]);
+  let actual = a.abs();
+  assert_eq!(expected, actual);
+}
+
+#[test]
+fn impl_i64x2_unsigned_abs() {
+  let a = i64x2::from([-1, i64::MIN]);
+  let expected = u64x2::from([1, i64::MIN as u64]);
+  let actual = a.unsigned_abs();
+  assert_eq!(expected, actual);
+}
+
+#[test]
 fn impl_i64x2_cmp_eq() {
   let a = i64x2::from([1_i64, 4]);
   let b = i64x2::from([3_i64, 4]);
@@ -96,4 +112,50 @@ fn impl_i64x2_cmp_gt() {
   let expected = i64x2::from([-1, 0]);
   let actual = a.cmp_gt(b);
   assert_eq!(expected, actual);
+}
+
+#[test]
+fn test_i64x2_any() {
+  let a = i64x2::from([3, -1]);
+  assert!(a.any());
+  //
+  let a = i64x2::from([1, 0]);
+  assert!(!a.any());
+}
+
+#[test]
+fn test_i64x2_all() {
+  let a = i64x2::from([-1, -1]);
+  assert!(a.all(), "{:?}", a);
+  //
+  let a = i64x2::from([1, -1]);
+  assert!(!a.all());
+}
+
+#[test]
+fn test_i64x2_none() {
+  let a = i64x2::from([1, 0]);
+  assert!(a.none());
+  //
+  let a = i64x2::from([1, -1]);
+  assert!(!a.none());
+}
+
+#[test]
+fn test_i64x2_move_mask() {
+  let a = i64x2::from([-1, 0]);
+  let expected = 0b01;
+  let actual = a.move_mask();
+  assert_eq!(expected, actual);
+  //
+  let a = i64x2::from([1, -1]);
+  let expected = 0b10;
+  let actual = a.move_mask();
+  assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar_reduce(
+    |a: i64x2| a.move_mask(),
+    0i32,
+    |acc, a, idx| acc | if a < 0 { 1 << idx } else { 0 },
+  );
 }

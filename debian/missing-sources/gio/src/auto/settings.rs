@@ -2,7 +2,10 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{Action, SettingsBackend, SettingsSchema};
+#[cfg(feature = "v2_82")]
+#[cfg_attr(docsrs, doc(cfg(feature = "v2_82")))]
+use crate::SettingsBindFlags;
+use crate::{ffi, Action, SettingsBackend, SettingsSchema};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -108,6 +111,31 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
         }
     }
 
+    #[cfg(feature = "v2_82")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "v2_82")))]
+    #[doc(alias = "g_settings_bind_with_mapping_closures")]
+    fn bind_with_mapping_closures(
+        &self,
+        key: &str,
+        object: &impl IsA<glib::Object>,
+        property: &str,
+        flags: SettingsBindFlags,
+        get_mapping: Option<&glib::Closure>,
+        set_mapping: Option<&glib::Closure>,
+    ) {
+        unsafe {
+            ffi::g_settings_bind_with_mapping_closures(
+                self.as_ref().to_glib_none().0,
+                key.to_glib_none().0,
+                object.as_ref().to_glib_none().0,
+                property.to_glib_none().0,
+                flags.into_glib(),
+                get_mapping.to_glib_none().0,
+                set_mapping.to_glib_none().0,
+            );
+        }
+    }
+
     #[doc(alias = "g_settings_bind_writable")]
     fn bind_writable(
         &self,
@@ -203,6 +231,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
 
     #[doc(alias = "g_settings_get_has_unapplied")]
     #[doc(alias = "get_has_unapplied")]
+    #[doc(alias = "has-unapplied")]
     fn has_unapplied(&self) -> bool {
         unsafe {
             from_glib(ffi::g_settings_get_has_unapplied(
@@ -488,7 +517,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
     ) -> SignalHandlerId {
         unsafe extern "C" fn changed_trampoline<P: IsA<Settings>, F: Fn(&P, &str) + 'static>(
             this: *mut ffi::GSettings,
-            key: *mut libc::c_char,
+            key: *mut std::ffi::c_char,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -506,7 +535,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -524,7 +553,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             F: Fn(&P, u32) -> glib::Propagation + 'static,
         >(
             this: *mut ffi::GSettings,
-            key: libc::c_uint,
+            key: std::ffi::c_uint,
             f: glib::ffi::gpointer,
         ) -> glib::ffi::gboolean {
             let f: &F = &*(f as *const F);
@@ -535,7 +564,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"writable-change-event\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     writable_change_event_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -554,7 +583,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             F: Fn(&P, &str) + 'static,
         >(
             this: *mut ffi::GSettings,
-            key: *mut libc::c_char,
+            key: *mut std::ffi::c_char,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -572,7 +601,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 signal_name.as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     writable_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -598,7 +627,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::delay-apply\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_delay_apply_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -624,7 +653,7 @@ pub trait SettingsExt: IsA<Settings> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::has-unapplied\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_has_unapplied_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

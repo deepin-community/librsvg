@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{Pixbuf, PixbufAnimation, PixbufFormat};
+use crate::{ffi, Pixbuf, PixbufAnimation, PixbufFormat};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -172,7 +172,7 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"area-prepared\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     area_prepared_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -190,10 +190,10 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             F: Fn(&P, i32, i32, i32, i32) + 'static,
         >(
             this: *mut ffi::GdkPixbufLoader,
-            x: libc::c_int,
-            y: libc::c_int,
-            width: libc::c_int,
-            height: libc::c_int,
+            x: std::ffi::c_int,
+            y: std::ffi::c_int,
+            width: std::ffi::c_int,
+            height: std::ffi::c_int,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -210,7 +210,7 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"area-updated\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     area_updated_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -232,7 +232,7 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"closed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     closed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -247,8 +247,8 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             F: Fn(&P, i32, i32) + 'static,
         >(
             this: *mut ffi::GdkPixbufLoader,
-            width: libc::c_int,
-            height: libc::c_int,
+            width: std::ffi::c_int,
+            height: std::ffi::c_int,
             f: glib::ffi::gpointer,
         ) {
             let f: &F = &*(f as *const F);
@@ -263,7 +263,7 @@ pub trait PixbufLoaderExt: IsA<PixbufLoader> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"size-prepared\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     size_prepared_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

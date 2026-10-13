@@ -9,15 +9,15 @@
 /// Imagine the XML [billion laughs attack], but done in SVG's terms:
 ///
 /// - #323 above creates deeply nested groups of `<use>` elements.
-/// The first one references the second one ten times, the second one
-/// references the third one ten times, and so on.  In the file given,
-/// this causes 10^17 objects to be rendered.  While this does not
-/// exhaust memory, it would take a really long time.
+///   The first one references the second one ten times, the second one
+///   references the third one ten times, and so on.  In the file given,
+///   this causes 10^17 objects to be rendered.  While this does not
+///   exhaust memory, it would take a really long time.
 ///
 /// - #515 has deeply nested references of `<pattern>` elements.  Each
-/// object inside each pattern has an attribute
-/// fill="url(#next_pattern)", so the number of final rendered objects
-/// grows exponentially.
+///   object inside each pattern has an attribute
+///   fill="url(#next_pattern)", so the number of final rendered objects
+///   grows exponentially.
 ///
 /// We deal with both cases by placing a limit on how many references
 /// will be resolved during the SVG rendering process, that is,
@@ -48,3 +48,9 @@ pub const MAX_LOADED_ATTRIBUTES: usize = u16::MAX as usize;
 /// where the base document is included within itself, or when two
 /// documents recursively include each other.
 pub const MAX_XINCLUDE_DEPTH: usize = 20;
+
+/// Maximum level of nesting for layers during rendering.
+///
+/// This is a mitigation for malicious SVGs which try to have layers that are nested
+/// extremely deep, as this could cause stack exhaustion.
+pub const MAX_LAYER_NESTING_DEPTH: u16 = 50;

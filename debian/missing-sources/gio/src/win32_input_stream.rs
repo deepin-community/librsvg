@@ -4,29 +4,13 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle}
 
 use glib::{prelude::*, translate::*};
 
-use crate::InputStream;
+use crate::{ffi, InputStream};
 
 glib::wrapper! {
     pub struct Win32InputStream(Object<ffi::GWin32InputStream, ffi::GWin32InputStreamClass>) @extends InputStream;
 
     match fn {
         type_ => || ffi::g_win32_input_stream_get_type(),
-    }
-}
-
-pub trait Win32InputStreamExt: 'static {
-    #[doc(alias = "g_win32_input_stream_get_close_handle")]
-    #[doc(alias = "get_close_handle")]
-    fn closes_handle(&self) -> bool;
-}
-
-impl<O: IsA<Win32InputStream>> Win32InputStreamExt for O {
-    fn closes_handle(&self) -> bool {
-        unsafe {
-            from_glib(ffi::g_win32_input_stream_get_close_handle(
-                self.as_ref().to_glib_none().0,
-            ))
-        }
     }
 }
 
@@ -73,7 +57,17 @@ mod sealed {
     impl<T: super::IsA<super::Win32InputStream>> Sealed for T {}
 }
 
-pub trait Win32InputStreamExtManual: sealed::Sealed + IsA<Win32InputStream> + Sized {
+pub trait Win32InputStreamExt: sealed::Sealed + IsA<Win32InputStream> + Sized {
+    #[doc(alias = "g_win32_input_stream_get_close_handle")]
+    #[doc(alias = "get_close_handle")]
+    fn closes_handle(&self) -> bool {
+        unsafe {
+            from_glib(ffi::g_win32_input_stream_get_close_handle(
+                self.as_ref().to_glib_none().0,
+            ))
+        }
+    }
+
     #[doc(alias = "g_win32_input_stream_get_handle")]
     #[doc(alias = "get_handle")]
     fn handle<T: FromRawHandle>(&self) -> T {
@@ -99,4 +93,4 @@ pub trait Win32InputStreamExtManual: sealed::Sealed + IsA<Win32InputStream> + Si
     }
 }
 
-impl<O: IsA<Win32InputStream>> Win32InputStreamExtManual for O {}
+impl<O: IsA<Win32InputStream>> Win32InputStreamExt for O {}

@@ -294,7 +294,7 @@ impl i8x32 {
   pub fn move_mask(self) -> i32 {
     pick! {
       if #[cfg(target_feature="avx2")] {
-        move_mask_i8_m256i(self.avx) as i32
+        move_mask_i8_m256i(self.avx)
       } else {
         self.a.move_mask() | (self.b.move_mask() << 16)
       }
@@ -329,6 +329,51 @@ impl i8x32 {
   #[must_use]
   pub fn none(self) -> bool {
     !self.any()
+  }
+
+  /// Returns a new vector with lanes selected from the lanes of the first input
+  /// vector a specified in the second input vector `rhs`.
+  /// The indices i in range `[0, 15]` select the i-th element of `self`. For
+  /// indices outside of the range the resulting lane is `0`.
+  ///
+  /// This note that is the equivalent of two parallel swizzle operations on the
+  /// two halves of the vector, and the indexes each refer to the
+  /// corresponding half.
+  #[inline]
+  pub fn swizzle_half(self, rhs: i8x32) -> i8x32 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        Self { avx: shuffle_av_i8z_half_m256i(self.avx, rhs.saturating_add(i8x32::splat(0x60)).avx) }
+      } else {
+          Self {
+            a : self.a.swizzle(rhs.a),
+            b : self.b.swizzle(rhs.b),
+          }
+      }
+    }
+  }
+
+  /// Indices in the range `[0, 15]` will select the i-th element of `self`. If
+  /// the high bit of any element of `rhs` is set (negative) then the
+  /// corresponding output lane is guaranteed to be zero. Otherwise if the
+  /// element of `rhs` is within the range `[32, 127]` then the output lane is
+  /// either `0` or `self[rhs[i] % 16]` depending on the implementation.
+  ///
+  /// This is the equivalent to two parallel swizzle operations on the two
+  /// halves of the vector, and the indexes each refer to their corresponding
+  /// half.
+  #[inline]
+  pub fn swizzle_half_relaxed(self, rhs: i8x32) -> i8x32 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        Self { avx: shuffle_av_i8z_half_m256i(self.avx, rhs.avx) }
+      } else {
+        Self {
+          a : self.a.swizzle_relaxed(rhs.a),
+          b : self.b.swizzle_relaxed(rhs.b),
+        }
+      }
+    }
   }
 
   #[inline]

@@ -418,6 +418,8 @@ fn impl_i8x32_max() {
   ]);
   let actual = a.max(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i8x32, b| a.max(b), |a, b| a.max(b));
 }
 
 #[test]
@@ -526,6 +528,8 @@ fn impl_i8x32_min() {
   ]);
   let actual = a.min(b);
   assert_eq!(expected, actual);
+
+  crate::test_random_vector_vs_scalar(|a: i8x32, b| a.min(b), |a, b| a.min(b));
 }
 
 #[test]
@@ -587,4 +591,22 @@ fn test_i8x32_none() {
   //
   let a = i8x32::from([0; 32]);
   assert!(a.none());
+}
+
+#[test]
+fn test_i8x32_swizzle_half() {
+  let a = i8x32::from([
+    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,
+    22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32,
+  ]);
+  let b = i8x32::from([
+    15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0, 15, 14, 13, 12, 11,
+    10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 0,
+  ]);
+  let expected = i8x32::from([
+    16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1, 32, 31, 30, 29, 28,
+    27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17,
+  ]);
+  let actual = a.swizzle_half(b);
+  assert_eq!(expected, actual);
 }

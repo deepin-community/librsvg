@@ -391,7 +391,7 @@ impl i8x16 {
     Self::from(array)
   }
 
-  /// converts i16 to i8, saturating values that are too large
+  /// converts `i16` to `i8`, saturating values that are too large
   #[inline]
   #[must_use]
   pub fn from_i16x16_saturate(v: i16x16) -> i8x16 {
@@ -444,7 +444,7 @@ impl i8x16 {
     }
   }
 
-  /// converts i16 to i8, truncating the upper bits if they are set
+  /// converts `i16` to `i8`, truncating the upper bits if they are set
   #[inline]
   #[must_use]
   pub fn from_i16x16_truncate(v: i16x16) -> i8x16 {
@@ -527,6 +527,42 @@ impl i8x16 {
       }
     }
   }
+
+  #[inline]
+  #[must_use]
+  pub fn unsigned_abs(self) -> u8x16 {
+    pick! {
+      if #[cfg(target_feature="ssse3")] {
+        u8x16 { sse: abs_i8_m128i(self.sse) }
+      } else if #[cfg(target_feature="simd128")] {
+        u8x16 { simd: i8x16_abs(self.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
+        unsafe { u8x16 { neon: vreinterpretq_u8_s8(vabsq_s8(self.neon)) }}
+      } else {
+        let arr: [i8; 16] = cast(self);
+        cast(
+          [
+            arr[0].unsigned_abs(),
+            arr[1].unsigned_abs(),
+            arr[2].unsigned_abs(),
+            arr[3].unsigned_abs(),
+            arr[4].unsigned_abs(),
+            arr[5].unsigned_abs(),
+            arr[6].unsigned_abs(),
+            arr[7].unsigned_abs(),
+            arr[8].unsigned_abs(),
+            arr[9].unsigned_abs(),
+            arr[10].unsigned_abs(),
+            arr[11].unsigned_abs(),
+            arr[12].unsigned_abs(),
+            arr[13].unsigned_abs(),
+            arr[14].unsigned_abs(),
+            arr[15].unsigned_abs(),
+            ])
+      }
+    }
+  }
+
   #[inline]
   #[must_use]
   pub fn max(self, rhs: Self) -> Self {
@@ -631,6 +667,10 @@ impl i8x16 {
         move_mask_i8_m128i(self.sse) != 0
       } else if #[cfg(target_feature="simd128")] {
         u8x16_bitmask(self.simd) != 0
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe {
+          vminvq_s8(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         ((v[0] | v[1]) & 0x80808080808080) != 0
@@ -645,9 +685,79 @@ impl i8x16 {
         move_mask_i8_m128i(self.sse) == 0b1111_1111_1111_1111
       } else if #[cfg(target_feature="simd128")] {
         u8x16_bitmask(self.simd) == 0b1111_1111_1111_1111
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe {
+          vmaxvq_s8(self.neon) < 0
+        }
       } else {
         let v : [u64;2] = cast(self);
         (v[0] & v[1] & 0x80808080808080) == 0x80808080808080
+      }
+    }
+  }
+
+  /// Returns a new vector where each element is based on the index values in
+  /// `rhs`.
+  ///
+  /// * Index values in the range `[0, 15]` select the i-th element of `self`.
+  /// * Index values that are out of range will cause that output lane to be
+  ///   `0`.
+  #[inline]
+  pub fn swizzle(self, rhs: i8x16) -> i8x16 {
+    pick! {
+      if #[cfg(target_feature="ssse3")] {
+        Self { sse: shuffle_av_i8z_all_m128i(self.sse, add_saturating_u8_m128i(rhs.sse, set_splat_i8_m128i(0x70))) }
+      } else if #[cfg(target_feature="simd128")] {
+        Self { simd: i8x16_swizzle(self.simd, rhs.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe { Self { neon: vqtbl1q_s8(self.neon, vreinterpretq_u8_s8(rhs.neon)) } }
+      } else {
+        let idxs = rhs.to_array();
+        let arr = self.to_array();
+        let mut out = [0i8;16];
+        for i in 0..16 {
+          let idx = idxs[i] as usize;
+          if idx >= 16 {
+            out[i] = 0;
+          } else {
+            out[i] = arr[idx];
+          }
+        }
+        Self::new(out)
+      }
+    }
+  }
+
+  /// Works like [`swizzle`](Self::swizzle) with the following additional
+  /// details
+  ///
+  /// * Indices in the range `[0, 15]` will select the i-th element of `self`.
+  /// * If the high bit of any index is set (meaning that the index is
+  ///   negative), then the corresponding output lane is guaranteed to be zero.
+  /// * Otherwise the output lane is either `0` or `self[rhs[i] % 16]`,
+  ///   depending on the implementation.
+  #[inline]
+  pub fn swizzle_relaxed(self, rhs: i8x16) -> i8x16 {
+    pick! {
+      if #[cfg(target_feature="ssse3")] {
+        Self { sse: shuffle_av_i8z_all_m128i(self.sse, rhs.sse) }
+      } else if #[cfg(target_feature="simd128")] {
+        Self { simd: i8x16_swizzle(self.simd, rhs.simd) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        unsafe { Self { neon: vqtbl1q_s8(self.neon, vreinterpretq_u8_s8(rhs.neon)) } }
+      } else {
+        let idxs = rhs.to_array();
+        let arr = self.to_array();
+        let mut out = [0i8;16];
+        for i in 0..16 {
+          let idx = idxs[i] as usize;
+          if idx >= 16 {
+            out[i] = 0;
+          } else {
+            out[i] = arr[idx];
+          }
+        }
+        Self::new(out)
       }
     }
   }

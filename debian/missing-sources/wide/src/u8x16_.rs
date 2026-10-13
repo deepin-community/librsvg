@@ -10,7 +10,7 @@ pick! {
 
     #[derive(Clone, Copy)]
     #[repr(transparent)]
-    pub struct u8x16 { simd: v128 }
+    pub struct u8x16 { pub(crate) simd: v128 }
 
     impl Default for u8x16 {
       fn default() -> Self {
@@ -29,7 +29,7 @@ pick! {
     use core::arch::aarch64::*;
     #[repr(C)]
     #[derive(Copy, Clone)]
-    pub struct u8x16 { neon : uint8x16_t }
+    pub struct u8x16 { pub(crate) neon : uint8x16_t }
 
     impl Default for u8x16 {
       #[inline]
@@ -51,7 +51,7 @@ pick! {
   } else {
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
     #[repr(C, align(16))]
-    pub struct u8x16 { arr: [u8;16] }
+    pub struct u8x16 { pub(crate) arr: [u8;16] }
   }
 }
 
@@ -459,7 +459,7 @@ impl u8x16 {
     }
   }
 
-  /// Unpack and interleave low lanes of two u8x16
+  /// Unpack and interleave low lanes of two `u8x16`
   #[inline]
   #[must_use]
   pub fn unpack_low(lhs: u8x16, rhs: u8x16) -> u8x16 {
@@ -489,7 +489,7 @@ impl u8x16 {
     }
   }
 
-  /// Unpack and interleave high lanes of two u8x16
+  /// Unpack and interleave high lanes of two `u8x16`
   #[inline]
   #[must_use]
   pub fn unpack_high(lhs: u8x16, rhs: u8x16) -> u8x16 {
@@ -519,7 +519,7 @@ impl u8x16 {
     }
   }
 
-  /// Pack and saturate two i16x8 to u8x16
+  /// Pack and saturate two `i16x8` to `u8x16`
   #[inline]
   #[must_use]
   pub fn narrow_i16x8(lhs: i16x8, rhs: i16x8) -> Self {

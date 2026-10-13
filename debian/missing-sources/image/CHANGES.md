@@ -1,21 +1,113 @@
 # Release Notes
 
 ## Known issues
-- Many decoders will panic on malicous input. In most cases, this is caused by
-  not enforcing memory limits, though other panics have been seen from fuzzing.
+- Many decoders will panic on malicious input.
 - The color space information of pixels is not clearly communicated.
 
 ## Changes
 
-### Unreleased
+### Version 0.25.5
 
-- More convenient to use buffers will be added in the future. In particular,
-  improving initialization, passing of output buffers, and adding a more
-  complete representation for layouts. The plan is for these to interact with
-  the rest of the library through a byte-based interface similar to
-  `ImageDecoder`.
-  See ongoing work on [`image-canvas`](https://github.com/image-rs/canvas) if
-  you want to participate.
+Features:
+ - Added support for decoding 10-bit and 12-bit AVIF
+ - Initial, opt-in serde support for an enum. This may be extended to other types in the future.
+
+Bug fixes:
+ - [Multiple bug fixes in AVIF decoding](https://github.com/image-rs/image/pull/2373)
+ - The `rayon` feature now correctly toggles the use of `rayon` when encoding AVIF. (Previously it would be either always on or always off depending on the version of the `ravif` crate in your dependency tree.)
+ - "jfif" file extension for JPEG images is now recognized
+
+### Version 0.25.4
+
+Features:
+ - Much faster decoding of lossless WebP due to a variety of optimizations. Our benchmarks show 2x to 2.5x improvement.
+ - Added support for orientation metadata, so that e.g. smartphone camera images could be displayed correctly:
+   - Added `ImageDecoder::orientation()` and implemented orientation metadata extraction for JPEG, WebP and TIFF formats
+   - Added `DynamicImage::apply_orientation()` to apply the orientation to an image
+ - Added support for extracting Exif metadata from images via `ImageDecoder::exif_metadata()`, and implemented it for JPEG and WebP formats
+ - Added `ImageEncoder::set_icc_profile()` and implemented it for WebP format. Pull requests with implementations for other formats are welcome.
+ - Added `DynamicImage::fast_blur()` for a linear-time approximation of Gaussian blur, which is much faster at larger blur radii
+
+Bug fixes:
+ - Fixed some APNG images being decoded incorrectly
+ - Fixed the iterator over animated WebP frames to return `None` instead of an error when the end of the animation is reached
+
+### Version 0.25.3
+
+Yanked! This version accidentally missed a commit that should have been
+included with the release. The `Orientation` struct should be in the
+appropriate module instead of the top-level. This release won't be supported.
+
+### Version 0.25.2
+
+Features:
+- Added the HDR encoder to supported formats in generic write methods with the
+  `hdr` feature enabled. Supports 32-bit float RGB color only, for now.
+- When cloning `ImageBuffer`, `DynamicImage` and `Frame` the existing buffer
+  will now be reused if possible.
+- Added `image::ImageReader` as an alias.
+- Implement `ImageEncoder` for `HdrEncoder`.
+
+Structural changes
+- Switch from `byteorder` to `byteorder-lite`, consolidating some casting
+  unsafety to `bytemuck`.
+- Many methods on `DynamicImage` and buffers gained `#[must_use]` indications.
+
+Bug fixes:
+- Removed test data included in the crate archive.
+- The WebP animation decoder stops when reaching the indicate frame count.
+- Fixed bugs in the `bmp` decoder.
+- Format support gated on the `exr` feature now compiles in isolation.
+
+### Version 0.25.1
+
+Bug fixes:
+- Fixed corrupt JPEG output when attempting to encode images containing an alpha
+  channel.
+- Only accept ".ff" file extension for farbfeld images.
+- Correct farbfeld feature flag for `ImageFormat::{reading_enabled, writing_enabled}`.
+- Disable strict mode for JPEG decoder.
+- Add nasm feature to optionally enable faster AVIF encoding.
+
+
+### Version 0.25.0
+
+Breaking changes:
+- Added `BufRead` + `Seek` bound on many decoders.
+- Use `ExtendedColorType` instead of `ColorType` when encoding.
+- Removed `ImageOutputFormat`, `GenericImageView::bounds`, and several other
+  deprecated items.
+- Removed incremental decoding support and changed `ImageDecoder` so the trait
+  is object safe.
+- Pixel types are now `repr(transparent)` rather than `repr(C)`.
+- Made color_quant dependency optional.
+- Renamed some feature flags.
+
+Structural changes:
+- Increased MSRV to 1.67.1
+
+Codec changes:
+- Switched to image-webp for WebP encoding.
+- Switched to zune-jpeg for JPEG decoding.
+- Made the HDR decoder produce f32 images.
+- Removed DXT encoding and decoding support.
+
+### Version 0.24.9
+
+Structural changes:
+- Relicense to MIT OR Apache-2.0
+- Increase MSRV 1.63.0
+
+New features:
+- Support limits in PNG animation decoding.
+- Added offsets to SubImage to compensate for the now-deprecated bounds call
+  from GenericImageView.
+
+Bug fixes:
+- Correct limit tests for TIFF.
+- Avoid overflow in gif::Decoder::buffer_size.
+- Return error instead of using asssertion for Avif decoder unsupported or
+  invalid bit depth.
 
 ### Version 0.24.8
 
@@ -27,7 +119,7 @@ New features:
 - TGA encoder now supports RLE encoding.
 - Add rayon parallel iterators behind an optional `rayon` feature.
 - Support CMYK TIFF images.
-- Implement From<DynamicImage> for all image types.
+- Implement `From<DynamicImage>` for all image types.
 
 Bug fixes:
 - Fix decoding pngs with invalid text chunks.
