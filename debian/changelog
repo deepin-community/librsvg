@@ -1,3 +1,18 @@
+librsvg (2.58.0+dfsg-1deepin2) unstable; urgency=medium
+
+  * Add sw64 (Sunway) architecture support, delivered as
+    debian/patches/add-sw64-support.patch and applied from
+    override_dh_auto_configure on sw64 (guarded by
+    DEB_HOST_ARCH = sw64).  It cannot be listed in
+    debian/patches/series: dpkg-source rejects quilt patches that
+    touch the debian directory, and the vendored crates live under
+    debian/missing-sources.  target-lexicon and libc gain sw64
+    support, and linux-raw-sys gains the sw64 modules and
+    target_arch arms, so `make check` no longer fails on sw64 with
+    "unresolved import `crate::general`".
+
+ -- lichenggang <lichenggang@uniontech.com>  Tue, 13 Oct 2026 22:13:15 +0800
+
 librsvg (2.58.0+dfsg-1deepin1) unstable; urgency=medium
 
   * fix(cve): CVE-2026-96889 (high) - (#1241): Fix use-after-free with

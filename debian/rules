@@ -4,6 +4,7 @@ export DEB_BUILD_MAINT_OPTIONS = hardening=+all
 export DEB_LDFLAGS_MAINT_APPEND = -Wl,-O1 -Wl,-z,defs
 export DPKG_GENSYMBOLS_CHECK_LEVEL = 4
 export CARGO_HOME = $(CURDIR)/debian/cargo-home
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
 NULL =
 built_binaries := $(shell dh_listpackages)
 configure_flags :=
@@ -27,6 +28,14 @@ override_dh_autoreconf:
 	dh_autoreconf --as-needed
 
 override_dh_auto_configure:
+ifeq ($(DEB_HOST_ARCH),sw64)
+	# The sw64 port has to touch the vendored crates under
+	# debian/missing-sources, and dpkg-source refuses that through
+	# debian/patches/series ("Reversed (or previously applied) patch
+	# detected").  Apply it here instead, on sw64 only and before anything
+	# runs cargo.
+	patch -p1 < debian/patches/add-sw64-support.patch
+endif
 	mkdir -p $(CARGO_HOME)
 	cp -a debian/a-link-purple-bg.png rsvg_convert/tests/fixtures/a-link-purple-bg.png
 	install -d debian/missing-sources/system-deps/src/tests/lib
