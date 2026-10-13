@@ -4,13 +4,13 @@ pick! {
   if #[cfg(target_feature="sse2")] {
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
     #[repr(C, align(16))]
-    pub struct u16x8 { sse: m128i }
+    pub struct u16x8 { pub(crate) sse: m128i }
   } else if #[cfg(target_feature="simd128")] {
     use core::arch::wasm32::*;
 
     #[derive(Clone, Copy)]
     #[repr(transparent)]
-    pub struct u16x8 { simd: v128 }
+    pub struct u16x8 { pub(crate) simd: v128 }
 
     impl Default for u16x8 {
       fn default() -> Self {
@@ -29,7 +29,7 @@ pick! {
       use core::arch::aarch64::*;
       #[repr(C)]
       #[derive(Copy, Clone)]
-      pub struct u16x8 { neon : uint16x8_t }
+      pub struct u16x8 { pub(crate) neon : uint16x8_t }
 
       impl Default for u16x8 {
         #[inline]
@@ -51,7 +51,7 @@ pick! {
   } else {
     #[derive(Default, Clone, Copy, PartialEq, Eq)]
     #[repr(C, align(16))]
-    pub struct u16x8 { arr: [u16;8] }
+    pub struct u16x8 { pub(crate) arr: [u16;8] }
   }
 }
 
@@ -404,7 +404,7 @@ impl u16x8 {
   pub fn max(self, rhs: Self) -> Self {
     pick! {
       if #[cfg(target_feature="sse4.1")] {
-        Self { sse: max_u8_m128i(self.sse, rhs.sse) }
+        Self { sse: max_u16_m128i(self.sse, rhs.sse) }
       } else if #[cfg(target_feature="simd128")] {
         Self { simd: u16x8_max(self.simd, rhs.simd) }
       } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
@@ -430,7 +430,7 @@ impl u16x8 {
   pub fn min(self, rhs: Self) -> Self {
     pick! {
       if #[cfg(target_feature="sse4.1")] {
-        Self { sse: min_u8_m128i(self.sse, rhs.sse) }
+        Self { sse: min_u16_m128i(self.sse, rhs.sse) }
       } else if #[cfg(target_feature="simd128")] {
         Self { simd: u16x8_min(self.simd, rhs.simd) }
       } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))]{
@@ -497,6 +497,134 @@ impl u16x8 {
           self.arr[6].saturating_sub(rhs.arr[6]),
           self.arr[7].saturating_sub(rhs.arr[7]),
         ]}
+      }
+    }
+  }
+
+  /// Unpack the lower half of the input and zero expand it to `u16` values.
+  #[inline]
+  #[must_use]
+  pub fn from_u8x16_low(u: u8x16) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self{ sse: unpack_low_i8_m128i(u.sse, m128i::zeroed()) }
+      } else {
+        let u_arr: [u8; 16] = cast(u);
+        cast([
+          u_arr[0] as u16,
+          u_arr[1] as u16,
+          u_arr[2] as u16,
+          u_arr[3] as u16,
+          u_arr[4] as u16,
+          u_arr[5] as u16,
+          u_arr[6] as u16,
+          u_arr[7] as u16,
+        ])
+      }
+    }
+  }
+
+  /// Unpack the upper half of the input and zero expand it to `u16` values.
+  #[inline]
+  #[must_use]
+  pub fn from_u8x16_high(u: u8x16) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self{ sse: unpack_high_i8_m128i(u.sse, m128i::zeroed()) }
+      } else {
+        let u_arr: [u8; 16] = cast(u);
+        cast([
+          u_arr[8] as u16,
+          u_arr[9] as u16,
+          u_arr[10] as u16,
+          u_arr[11] as u16,
+          u_arr[12] as u16,
+          u_arr[13] as u16,
+          u_arr[14] as u16,
+          u_arr[15] as u16,
+        ])
+      }
+    }
+  }
+
+  /// multiplies two u16x8 and returns the result as a widened u32x8
+  #[inline]
+  #[must_use]
+  pub fn mul_widen(self, rhs: Self) -> u32x8 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        let a = convert_to_i32_m256i_from_u16_m128i(self.sse);
+        let b = convert_to_i32_m256i_from_u16_m128i(rhs.sse);
+        u32x8 { avx2: mul_i32_keep_low_m256i(a,b) }
+      } else if #[cfg(target_feature="sse2")] {
+         let low = mul_i16_keep_low_m128i(self.sse, rhs.sse);
+         let high = mul_u16_keep_high_m128i(self.sse, rhs.sse);
+         u32x8 {
+          a: u32x4 { sse:unpack_low_i16_m128i(low, high) },
+          b: u32x4 { sse:unpack_high_i16_m128i(low, high) }
+        }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+         let lhs_low = unsafe { vget_low_u16(self.neon) };
+         let rhs_low = unsafe { vget_low_u16(rhs.neon) };
+
+         let lhs_high = unsafe { vget_high_u16(self.neon) };
+         let rhs_high = unsafe { vget_high_u16(rhs.neon) };
+
+         let low = unsafe { vmull_u16(lhs_low, rhs_low) };
+         let high = unsafe { vmull_u16(lhs_high, rhs_high) };
+
+         u32x8 { a: u32x4 { neon: low }, b: u32x4 {neon: high } }
+       } else {
+        let a = self.as_array_ref();
+        let b = rhs.as_array_ref();
+         u32x8::new([
+           u32::from(a[0]) * u32::from(b[0]),
+           u32::from(a[1]) * u32::from(b[1]),
+           u32::from(a[2]) * u32::from(b[2]),
+           u32::from(a[3]) * u32::from(b[3]),
+           u32::from(a[4]) * u32::from(b[4]),
+           u32::from(a[5]) * u32::from(b[5]),
+           u32::from(a[6]) * u32::from(b[6]),
+           u32::from(a[7]) * u32::from(b[7]),
+         ])
+       }
+    }
+  }
+
+  /// Multiples two `u16x8` and return the high part of intermediate `u32x8`
+  #[inline]
+  #[must_use]
+  pub fn mul_keep_high(self, rhs: Self) -> Self {
+    pick! {
+      if #[cfg(target_feature="sse2")] {
+        Self { sse: mul_u16_keep_high_m128i(self.sse, rhs.sse) }
+      } else if #[cfg(all(target_feature="neon",target_arch="aarch64"))] {
+        let lhs_low = unsafe { vget_low_u16(self.neon) };
+        let rhs_low = unsafe { vget_low_u16(rhs.neon) };
+
+        let lhs_high = unsafe { vget_high_u16(self.neon) };
+        let rhs_high = unsafe { vget_high_u16(rhs.neon) };
+
+        let low = unsafe { vmull_u16(lhs_low, rhs_low) };
+        let high = unsafe { vmull_u16(lhs_high, rhs_high) };
+
+        u16x8 { neon: unsafe { vuzpq_u16(vreinterpretq_u16_u32(low), vreinterpretq_u16_u32(high)).1 } }
+      } else if #[cfg(target_feature="simd128")] {
+        let low =  u32x4_extmul_low_u16x8(self.simd, rhs.simd);
+        let high = u32x4_extmul_high_u16x8(self.simd, rhs.simd);
+
+        Self { simd: u16x8_shuffle::<1, 3, 5, 7, 9, 11, 13, 15>(low, high) }
+      } else {
+        u16x8::new([
+          ((u32::from(rhs.as_array_ref()[0]) * u32::from(self.as_array_ref()[0])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[1]) * u32::from(self.as_array_ref()[1])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[2]) * u32::from(self.as_array_ref()[2])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[3]) * u32::from(self.as_array_ref()[3])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[4]) * u32::from(self.as_array_ref()[4])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[5]) * u32::from(self.as_array_ref()[5])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[6]) * u32::from(self.as_array_ref()[6])) >> 16) as u16,
+          ((u32::from(rhs.as_array_ref()[7]) * u32::from(self.as_array_ref()[7])) >> 16) as u16,
+        ])
       }
     }
   }

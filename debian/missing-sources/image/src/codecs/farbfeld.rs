@@ -16,15 +16,14 @@
 //! # Related Links
 //! * <https://tools.suckless.org/farbfeld/> - the farbfeld specification
 
-use std::convert::{TryFrom, TryInto};
-use std::i64;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
-use crate::color::ColorType;
+use crate::color::ExtendedColorType;
 use crate::error::{
     DecodingError, ImageError, ImageResult, UnsupportedError, UnsupportedErrorKind,
 };
-use crate::image::{self, ImageDecoder, ImageDecoderRect, ImageEncoder, ImageFormat, Progress};
+use crate::image::{self, ImageDecoder, ImageDecoderRect, ImageEncoder, ImageFormat};
+use crate::ColorType;
 
 /// farbfeld Reader
 pub struct FarbfeldReader<R: Read> {
@@ -53,7 +52,7 @@ impl<R: Read> FarbfeldReader<R> {
         if &magic != b"farbfeld" {
             return Err(ImageError::Decoding(DecodingError::new(
                 ImageFormat::Farbfeld.into(),
-                format!("Invalid magic: {:02x?}", magic),
+                format!("Invalid magic: {magic:02x?}"),
             )));
         }
 
@@ -68,8 +67,8 @@ impl<R: Read> FarbfeldReader<R> {
         if crate::utils::check_dimension_overflow(
             reader.width,
             reader.height,
-            // ColorType is always rgba16
-            ColorType::Rgba16.bytes_per_pixel(),
+            // ExtendedColorType is always rgba16
+            8,
         ) {
             return Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
@@ -137,7 +136,7 @@ impl<R: Read + Seek> Seek for FarbfeldReader<R> {
         }
 
         let original_offset = self.current_offset;
-        let end_offset = self.width as u64 * self.height as u64 * 2;
+        let end_offset = u64::from(self.width) * u64::from(self.height) * 2;
         let offset_from_current =
             parse_offset(original_offset, end_offset, pos).ok_or_else(|| {
                 io::Error::new(
@@ -196,9 +195,7 @@ impl<R: Read> FarbfeldDecoder<R> {
     }
 }
 
-impl<'a, R: 'a + Read> ImageDecoder<'a> for FarbfeldDecoder<R> {
-    type Reader = FarbfeldReader<R>;
-
+impl<R: Read> ImageDecoder for FarbfeldDecoder<R> {
     fn dimensions(&self) -> (u32, u32) {
         (self.reader.width, self.reader.height)
     }
@@ -207,24 +204,26 @@ impl<'a, R: 'a + Read> ImageDecoder<'a> for FarbfeldDecoder<R> {
         ColorType::Rgba16
     }
 
-    fn into_reader(self) -> ImageResult<Self::Reader> {
-        Ok(self.reader)
+    fn read_image(mut self, buf: &mut [u8]) -> ImageResult<()> {
+        assert_eq!(u64::try_from(buf.len()), Ok(self.total_bytes()));
+        self.reader.read_exact(buf)?;
+        Ok(())
     }
 
-    fn scanline_bytes(&self) -> u64 {
-        2
+    fn read_image_boxed(self: Box<Self>, buf: &mut [u8]) -> ImageResult<()> {
+        (*self).read_image(buf)
     }
 }
 
-impl<'a, R: 'a + Read + Seek> ImageDecoderRect<'a> for FarbfeldDecoder<R> {
-    fn read_rect_with_progress<F: Fn(Progress)>(
+impl<R: Read + Seek> ImageDecoderRect for FarbfeldDecoder<R> {
+    fn read_rect(
         &mut self,
         x: u32,
         y: u32,
         width: u32,
         height: u32,
         buf: &mut [u8],
-        progress_callback: F,
+        row_pitch: usize,
     ) -> ImageResult<()> {
         // A "scanline" (defined as "shortest non-caching read" in the doc) is just one channel in this case
 
@@ -235,8 +234,9 @@ impl<'a, R: 'a + Read + Seek> ImageDecoderRect<'a> for FarbfeldDecoder<R> {
             width,
             height,
             buf,
-            progress_callback,
+            row_pitch,
             self,
+            2,
             |s, scanline| s.reader.seek(SeekFrom::Start(scanline * 2)).map(|_| ()),
             |s, buf| s.reader.read_exact(buf),
         )?;
@@ -261,10 +261,14 @@ impl<W: Write> FarbfeldEncoder<W> {
     /// # Panics
     ///
     /// Panics if `width * height * 8 != data.len()`.
+    #[track_caller]
     pub fn encode(self, data: &[u8], width: u32, height: u32) -> ImageResult<()> {
+        let expected_buffer_len = (u64::from(width) * u64::from(height)).saturating_mul(8);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(8),
-            data.len() as u64
+            expected_buffer_len,
+            data.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            data.len(),
         );
         self.encode_impl(data, width, height)?;
         Ok(())
@@ -286,18 +290,19 @@ impl<W: Write> FarbfeldEncoder<W> {
 }
 
 impl<W: Write> ImageEncoder for FarbfeldEncoder<W> {
+    #[track_caller]
     fn write_image(
         self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
-        if color_type != ColorType::Rgba16 {
+        if color_type != ExtendedColorType::Rgba16 {
             return Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
                     ImageFormat::Farbfeld.into(),
-                    UnsupportedErrorKind::Color(color_type.into()),
+                    UnsupportedErrorKind::Color(color_type),
                 ),
             ));
         }
@@ -310,7 +315,7 @@ impl<W: Write> ImageEncoder for FarbfeldEncoder<W> {
 mod tests {
     use crate::codecs::farbfeld::FarbfeldDecoder;
     use crate::ImageDecoderRect;
-    use byteorder::{ByteOrder, NativeEndian};
+    use byteorder_lite::{ByteOrder, NativeEndian};
     use std::io::{Cursor, Seek, SeekFrom};
 
     static RECTANGLE_IN: &[u8] =     b"farbfeld\
@@ -371,7 +376,7 @@ mod tests {
         let mut out_buf = [0u8; 64];
         FarbfeldDecoder::new(input_cur)
             .unwrap()
-            .read_rect(0, 2, 1, 1, &mut out_buf)
+            .read_rect(0, 2, 1, 1, &mut out_buf, 8)
             .unwrap();
         let exp = degenerate_pixels(RECTANGLE_OUT);
         assert_eq!(&out_buf[..exp.len()], &exp[..]);
@@ -388,7 +393,7 @@ mod tests {
         let mut out_buf = [0u8; 64];
         FarbfeldDecoder::new(Cursor::new(RECTANGLE_IN))
             .unwrap()
-            .read_rect(x, y, width, height, &mut out_buf)
+            .read_rect(x, y, width, height, &mut out_buf, width as usize * 8)
             .unwrap();
         let exp = degenerate_pixels(exp_wide);
         assert_eq!(&out_buf[..exp.len()], &exp[..]);

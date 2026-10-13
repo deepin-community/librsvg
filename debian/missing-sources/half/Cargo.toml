@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.70"
 name = "half"
-version = "2.3.1"
+version = "2.4.1"
 authors = ["Kathryn Long <squeeself@gmail.com>"]
 exclude = [
     ".git*",
@@ -70,6 +70,10 @@ default-features = false
 version = "0.4.3"
 optional = true
 default-features = false
+
+[dependencies.rkyv]
+version = "0.7"
+optional = true
 
 [dependencies.serde]
 version = "1.0"

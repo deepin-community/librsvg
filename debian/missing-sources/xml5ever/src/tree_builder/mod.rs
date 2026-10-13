@@ -10,7 +10,7 @@
 mod types;
 
 use log::{debug, warn};
-use mac::{_tt_as_expr_hack, matches, unwrap_or_return};
+use mac::unwrap_or_return;
 use markup5ever::{local_name, namespace_prefix, namespace_url, ns};
 use std::borrow::Cow;
 use std::borrow::Cow::Borrowed;
@@ -18,7 +18,6 @@ use std::collections::btree_map::Iter;
 use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::fmt::{Debug, Error, Formatter};
 use std::mem;
-use std::result::Result;
 
 pub use self::interface::{NextParserState, NodeOrText, Tracer, TreeSink};
 use self::types::*;
@@ -41,11 +40,7 @@ struct NamespaceMapStack(Vec<NamespaceMap>);
 
 impl NamespaceMapStack {
     fn new() -> NamespaceMapStack {
-        NamespaceMapStack({
-            let mut vec = Vec::new();
-            vec.push(NamespaceMap::default());
-            vec
-        })
+        NamespaceMapStack(vec![NamespaceMap::default()])
     }
 
     fn push(&mut self, map: NamespaceMap) {
@@ -113,11 +108,7 @@ impl NamespaceMap {
 
     #[doc(hidden)]
     pub fn insert(&mut self, name: &QualName) {
-        let prefix = if let Some(ref p) = name.prefix {
-            Some(p.clone())
-        } else {
-            None
-        };
+        let prefix = name.prefix.as_ref().cloned();
         let namespace = Some(Namespace::from(&*name.ns));
         self.scope.insert(prefix, namespace);
     }
@@ -176,14 +167,8 @@ impl NamespaceMap {
 }
 
 /// Tree builder options, with an impl for Default.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Default)]
 pub struct XmlTreeBuilderOpts {}
-
-impl Default for XmlTreeBuilderOpts {
-    fn default() -> XmlTreeBuilderOpts {
-        XmlTreeBuilderOpts {}
-    }
-}
 
 /// The XML tree builder.
 pub struct XmlTreeBuilder<Handle, Sink> {
@@ -211,9 +196,6 @@ pub struct XmlTreeBuilder<Handle, Sink> {
     /// Current namespace identifier
     current_namespace: NamespaceMap,
 
-    /// List of already present namespace local name attribute pairs.
-    present_attrs: HashSet<(Namespace, LocalName)>,
-
     /// Current tree builder phase.
     phase: XmlPhase,
 }
@@ -236,8 +218,7 @@ where
             curr_elem: None,
             namespace_stack: NamespaceMapStack::new(),
             current_namespace: NamespaceMap::empty(),
-            present_attrs: HashSet::new(),
-            phase: StartPhase,
+            phase: Start,
         }
     }
 
@@ -246,10 +227,10 @@ where
     pub fn trace_handles(&self, tracer: &dyn Tracer<Handle = Handle>) {
         tracer.trace_handle(&self.doc_handle);
         for e in self.open_elems.iter() {
-            tracer.trace_handle(&e);
+            tracer.trace_handle(e);
         }
         if let Some(h) = self.curr_elem.as_ref() {
-            tracer.trace_handle(&h);
+            tracer.trace_handle(h);
         }
     }
 
@@ -278,7 +259,7 @@ where
     }
 
     fn declare_ns(&mut self, attr: &mut Attribute) {
-        if let Err(msg) = self.current_namespace.insert_ns(&attr) {
+        if let Err(msg) = self.current_namespace.insert_ns(attr) {
             self.sink.parse_error(msg);
         } else {
             attr.name.ns = ns!(xmlns);
@@ -322,43 +303,53 @@ where
     // existing namespace context.
     //
     // Returns false if the attribute is a duplicate, returns true otherwise.
-    fn bind_attr_qname(&mut self, name: &mut QualName) -> bool {
+    fn bind_attr_qname(
+        &mut self,
+        present_attrs: &mut HashSet<(Namespace, LocalName)>,
+        name: &mut QualName,
+    ) -> bool {
         // Attributes don't have default namespace
         let mut not_duplicate = true;
 
         if name.prefix.is_some() {
             self.bind_qname(name);
-            not_duplicate = self.check_duplicate_attr(name);
+            not_duplicate = Self::check_duplicate_attr(present_attrs, name);
         }
         not_duplicate
     }
 
-    fn check_duplicate_attr(&mut self, name: &QualName) -> bool {
+    fn check_duplicate_attr(
+        present_attrs: &mut HashSet<(Namespace, LocalName)>,
+        name: &QualName,
+    ) -> bool {
         let pair = (name.ns.clone(), name.local.clone());
 
-        if self.present_attrs.contains(&pair) {
+        if present_attrs.contains(&pair) {
             return false;
         }
-        self.present_attrs.insert(pair);
+        present_attrs.insert(pair);
         true
     }
 
     fn process_namespaces(&mut self, tag: &mut Tag) {
+        // List of already present namespace local name attribute pairs.
+        let mut present_attrs: HashSet<(Namespace, LocalName)> = Default::default();
+
         let mut new_attr = vec![];
         // First we extract all namespace declarations
-        for mut attr in tag.attrs.iter_mut().filter(|attr| {
-            attr.name.prefix == Some(namespace_prefix!("xmlns")) ||
-                attr.name.local == local_name!("xmlns")
+        for attr in tag.attrs.iter_mut().filter(|attr| {
+            attr.name.prefix == Some(namespace_prefix!("xmlns"))
+                || attr.name.local == local_name!("xmlns")
         }) {
-            self.declare_ns(&mut attr);
+            self.declare_ns(attr);
         }
 
         // Then we bind those namespace declarations to attributes
         for attr in tag.attrs.iter_mut().filter(|attr| {
-            attr.name.prefix != Some(namespace_prefix!("xmlns")) &&
-                attr.name.local != local_name!("xmlns")
+            attr.name.prefix != Some(namespace_prefix!("xmlns"))
+                && attr.name.local != local_name!("xmlns")
         }) {
-            if self.bind_attr_qname(&mut attr.name) {
+            if self.bind_attr_qname(&mut present_attrs, &mut attr.name) {
                 new_attr.push(attr.clone());
             }
         }
@@ -414,13 +405,13 @@ where
                 return;
             },
 
-            tokenizer::DoctypeToken(d) => DoctypeToken(d),
-            tokenizer::PIToken(x) => PIToken(x),
-            tokenizer::TagToken(x) => TagToken(x),
-            tokenizer::CommentToken(x) => CommentToken(x),
-            tokenizer::NullCharacterToken => NullCharacterToken,
-            tokenizer::EOFToken => EOFToken,
-            tokenizer::CharacterTokens(x) => CharacterTokens(x),
+            tokenizer::DoctypeToken(d) => Doctype(d),
+            tokenizer::PIToken(x) => Pi(x),
+            tokenizer::TagToken(x) => Tag(x),
+            tokenizer::CommentToken(x) => Comment(x),
+            tokenizer::NullCharacterToken => NullCharacter,
+            tokenizer::EOFToken => Eof,
+            tokenizer::CharacterTokens(x) => Characters(x),
         };
 
         self.process_to_completion(token);
@@ -542,7 +533,7 @@ where
         P: Fn(ExpandedName) -> bool,
     {
         loop {
-            if self.current_node_in(|x| pred(x)) {
+            if self.current_node_in(&pred) {
                 break;
             }
             self.pop();
@@ -618,8 +609,8 @@ where
         self.debug_step(mode, &token);
 
         match mode {
-            StartPhase => match token {
-                TagToken(Tag {
+            Start => match token {
+                Tag(Tag {
                     kind: StartTag,
                     name,
                     attrs,
@@ -633,11 +624,11 @@ where
                         self.process_namespaces(&mut tag);
                         tag
                     };
-                    self.phase = MainPhase;
+                    self.phase = Main;
                     let handle = self.append_tag_to_doc(tag);
                     self.add_to_open_elems(handle)
                 },
-                TagToken(Tag {
+                Tag(Tag {
                     kind: EmptyTag,
                     name,
                     attrs,
@@ -651,20 +642,20 @@ where
                         self.process_namespaces(&mut tag);
                         tag
                     };
-                    self.phase = EndPhase;
+                    self.phase = End;
                     let handle = self.append_tag_to_doc(tag);
                     self.sink.pop(&handle);
                     Done
                 },
-                CommentToken(comment) => self.append_comment_to_doc(comment),
-                PIToken(pi) => self.append_pi_to_doc(pi),
-                CharacterTokens(ref chars) if !any_not_whitespace(chars) => Done,
-                EOFToken => {
+                Comment(comment) => self.append_comment_to_doc(comment),
+                Pi(pi) => self.append_pi_to_doc(pi),
+                Characters(ref chars) if !any_not_whitespace(chars) => Done,
+                Eof => {
                     self.sink
                         .parse_error(Borrowed("Unexpected EOF in start phase"));
-                    Reprocess(EndPhase, EOFToken)
+                    Reprocess(End, Eof)
                 },
-                DoctypeToken(d) => {
+                Doctype(d) => {
                     self.append_doctype_to_doc(d);
                     Done
                 },
@@ -674,9 +665,9 @@ where
                     Done
                 },
             },
-            MainPhase => match token {
-                CharacterTokens(chs) => self.append_text(chs),
-                TagToken(Tag {
+            Main => match token {
+                Characters(chs) => self.append_text(chs),
+                Tag(Tag {
                     kind: StartTag,
                     name,
                     attrs,
@@ -692,7 +683,7 @@ where
                     };
                     self.insert_tag(tag)
                 },
-                TagToken(Tag {
+                Tag(Tag {
                     kind: EmptyTag,
                     name,
                     attrs,
@@ -714,7 +705,7 @@ where
                         self.append_tag(tag)
                     }
                 },
-                TagToken(Tag {
+                Tag(Tag {
                     kind: EndTag,
                     name,
                     attrs,
@@ -733,31 +724,31 @@ where
                     }
                     let retval = self.close_tag(tag);
                     if self.no_open_elems() {
-                        self.phase = EndPhase;
+                        self.phase = End;
                     }
                     retval
                 },
-                TagToken(Tag { kind: ShortTag, .. }) => {
+                Tag(Tag { kind: ShortTag, .. }) => {
                     self.pop();
                     if self.no_open_elems() {
-                        self.phase = EndPhase;
+                        self.phase = End;
                     }
                     Done
                 },
-                CommentToken(comment) => self.append_comment_to_tag(comment),
-                PIToken(pi) => self.append_pi_to_tag(pi),
-                EOFToken | NullCharacterToken => Reprocess(EndPhase, EOFToken),
-                DoctypeToken(_) => {
+                Comment(comment) => self.append_comment_to_tag(comment),
+                Pi(pi) => self.append_pi_to_tag(pi),
+                Eof | NullCharacter => Reprocess(End, Eof),
+                Doctype(_) => {
                     self.sink
                         .parse_error(Borrowed("Unexpected element in main phase"));
                     Done
                 },
             },
-            EndPhase => match token {
-                CommentToken(comment) => self.append_comment_to_doc(comment),
-                PIToken(pi) => self.append_pi_to_doc(pi),
-                CharacterTokens(ref chars) if !any_not_whitespace(chars) => Done,
-                EOFToken => self.stop_parsing(),
+            End => match token {
+                Comment(comment) => self.append_comment_to_doc(comment),
+                Pi(pi) => self.append_pi_to_doc(pi),
+                Characters(ref chars) if !any_not_whitespace(chars) => Done,
+                Eof => self.stop_parsing(),
                 _ => {
                     self.sink
                         .parse_error(Borrowed("Unexpected element in end phase"));

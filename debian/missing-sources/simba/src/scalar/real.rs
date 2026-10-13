@@ -5,13 +5,6 @@ use approx::{RelativeEq, UlpsEq};
 
 use crate::scalar::ComplexField;
 
-#[cfg(all(
-    any(target_arch = "nvptx", target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "cuda"
-))]
-use cuda_std::GpuFloat;
 #[cfg(all(not(feature = "std"), not(feature = "libm_force"), feature = "libm"))]
 use num::Float;
 //#[cfg(feature = "decimal")]
@@ -64,7 +57,7 @@ pub trait RealField:
     fn ln_10() -> Self;
 }
 
-macro_rules! impl_real(
+macro_rules! impl_real (
     ($($T:ty, $M:ident, $cpysgn_mod: ident, $atan_mod: ident);*) => ($(
         impl RealField for $T {
             #[inline]
@@ -215,26 +208,10 @@ macro_rules! impl_real(
     )*)
 );
 
-#[cfg(all(
-    not(target_arch = "nvptx"),
-    not(target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "libm"
-))]
+#[cfg(all(not(feature = "std"), not(feature = "libm_force"), feature = "libm"))]
 impl_real!(f32, f32, Float, Float; f64, f64, Float, Float);
 #[cfg(all(feature = "std", not(feature = "libm_force")))]
 impl_real!(f32, f32, f32, f32; f64, f64, f64, f64);
-#[cfg(all(
-    any(target_arch = "nvptx", target_arch = "nvptx64"),
-    not(feature = "std"),
-    not(feature = "libm_force"),
-    feature = "cuda"
-))]
-impl_real!(
-    f32, f32, GpuFloat, GpuFloat;
-    f64, f64, GpuFloat, GpuFloat
-);
 #[cfg(feature = "libm_force")]
 impl_real!(f32, f32, libm_force_f32, libm_force_f32; f64, f64, libm_force, libm_force);
 

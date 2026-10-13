@@ -2,7 +2,7 @@
 
 use std::{ffi::c_char, fmt, marker::PhantomData, mem, ptr};
 
-use crate::{prelude::*, translate::*, GStr, GString, GStringPtr};
+use crate::{ffi, gobject_ffi, prelude::*, translate::*, GStr, GString, GStringPtr};
 
 // rustdoc-stripper-ignore-next
 /// Minimum size of the `StrV` allocation.
@@ -335,6 +335,22 @@ impl<const N: usize> From<[GString; N]> for StrV {
             let mut s = Self::with_capacity(len);
             for (i, v) in value.into_iter().enumerate() {
                 *s.ptr.as_ptr().add(i) = v.into_glib_ptr();
+            }
+            s.len = len;
+            *s.ptr.as_ptr().add(s.len) = ptr::null_mut();
+            s
+        }
+    }
+}
+
+impl<const N: usize> From<[String; N]> for StrV {
+    #[inline]
+    fn from(value: [String; N]) -> Self {
+        unsafe {
+            let len = value.len();
+            let mut s = Self::with_capacity(len);
+            for (i, v) in value.into_iter().enumerate() {
+                *s.ptr.as_ptr().add(i) = GString::from(v).into_glib_ptr();
             }
             s.len = len;
             *s.ptr.as_ptr().add(s.len) = ptr::null_mut();
@@ -698,6 +714,9 @@ impl StrV {
                     .checked_mul(new_capacity)
                     .unwrap(),
             ) as *mut *mut c_char;
+            if self.capacity == 0 {
+                *new_ptr = ptr::null_mut();
+            }
             self.ptr = ptr::NonNull::new_unchecked(new_ptr);
             self.capacity = new_capacity;
         }
@@ -1479,21 +1498,21 @@ mod test {
         let items = ["str1", "str2", "str3", "str4"];
 
         items[..].run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
         });
 
         Vec::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
         });
 
         StrV::from(&items[..]).run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), items.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
@@ -1501,7 +1520,7 @@ mod test {
 
         let v = items.iter().copied().map(String::from).collect::<Vec<_>>();
         items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), v.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);
@@ -1509,7 +1528,7 @@ mod test {
 
         let v = items.iter().copied().map(GString::from).collect::<Vec<_>>();
         items.run_with_strv(|s| unsafe {
-            assert!(s.get_unchecked(4).is_null());
+            assert!((*s.as_ptr().add(4)).is_null());
             assert_eq!(s.len(), v.len());
             let s = StrV::from_glib_borrow(s.as_ptr() as *const *const c_char);
             assert_eq!(s, items);

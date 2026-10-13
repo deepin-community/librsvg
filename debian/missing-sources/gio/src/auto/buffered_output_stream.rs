@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{FilterOutputStream, OutputStream, Seekable};
+use crate::{ffi, FilterOutputStream, OutputStream, Seekable};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -118,6 +118,7 @@ mod sealed {
 pub trait BufferedOutputStreamExt: IsA<BufferedOutputStream> + sealed::Sealed + 'static {
     #[doc(alias = "g_buffered_output_stream_get_auto_grow")]
     #[doc(alias = "get_auto_grow")]
+    #[doc(alias = "auto-grow")]
     fn auto_grows(&self) -> bool {
         unsafe {
             from_glib(ffi::g_buffered_output_stream_get_auto_grow(
@@ -128,11 +129,13 @@ pub trait BufferedOutputStreamExt: IsA<BufferedOutputStream> + sealed::Sealed + 
 
     #[doc(alias = "g_buffered_output_stream_get_buffer_size")]
     #[doc(alias = "get_buffer_size")]
+    #[doc(alias = "buffer-size")]
     fn buffer_size(&self) -> usize {
         unsafe { ffi::g_buffered_output_stream_get_buffer_size(self.as_ref().to_glib_none().0) }
     }
 
     #[doc(alias = "g_buffered_output_stream_set_auto_grow")]
+    #[doc(alias = "auto-grow")]
     fn set_auto_grow(&self, auto_grow: bool) {
         unsafe {
             ffi::g_buffered_output_stream_set_auto_grow(
@@ -143,6 +146,7 @@ pub trait BufferedOutputStreamExt: IsA<BufferedOutputStream> + sealed::Sealed + 
     }
 
     #[doc(alias = "g_buffered_output_stream_set_buffer_size")]
+    #[doc(alias = "buffer-size")]
     fn set_buffer_size(&self, size: usize) {
         unsafe {
             ffi::g_buffered_output_stream_set_buffer_size(self.as_ref().to_glib_none().0, size);
@@ -167,7 +171,7 @@ pub trait BufferedOutputStreamExt: IsA<BufferedOutputStream> + sealed::Sealed + 
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::auto-grow\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_auto_grow_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -193,7 +197,7 @@ pub trait BufferedOutputStreamExt: IsA<BufferedOutputStream> + sealed::Sealed + 
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::buffer-size\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_buffer_size_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

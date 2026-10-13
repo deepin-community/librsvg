@@ -6,13 +6,14 @@
 use std::borrow::Cow;
 use std::cmp::min;
 use std::io::Write;
+use std::mem::size_of;
 
 use crate::buffer::ConvertBuffer;
 use crate::color::{FromColor, Luma, LumaA, Rgb, Rgba};
 use crate::error::{
     EncodingError, ParameterError, ParameterErrorKind, UnsupportedError, UnsupportedErrorKind,
 };
-use crate::{ColorType, ImageBuffer, ImageEncoder, ImageFormat, Pixel};
+use crate::{ExtendedColorType, ImageBuffer, ImageEncoder, ImageFormat, Pixel};
 use crate::{ImageError, ImageResult};
 
 use bytemuck::{try_cast_slice, try_cast_slice_mut, Pod, PodCastError};
@@ -58,9 +59,10 @@ impl<W: Write> AvifEncoder<W> {
         AvifEncoder::new_with_speed_quality(w, 4, 80) // `cavif` uses these defaults
     }
 
-    /// Create a new encoder with specified speed and quality, that writes its output to `w`.
-    /// `speed` accepts a value in the range 0-10, where 0 is the slowest and 10 is the fastest.
-    /// `quality` accepts a value in the range 0-100, where 0 is the worst and 100 is the best.
+    /// Create a new encoder with a specified speed and quality that writes its output to `w`.
+    /// `speed` accepts a value in the range 1-10, where 1 is the slowest and 10 is the fastest.
+    /// Slower speeds generally yield better compression results.
+    /// `quality` accepts a value in the range 1-100, where 1 is the worst and 100 is the best.
     pub fn new_with_speed_quality(w: W, speed: u8, quality: u8) -> Self {
         // Clamp quality and speed to range
         let quality = min(quality, 100);
@@ -69,7 +71,8 @@ impl<W: Write> AvifEncoder<W> {
         let encoder = Encoder::new()
             .with_quality(f32::from(quality))
             .with_alpha_quality(f32::from(quality))
-            .with_speed(speed);
+            .with_speed(speed)
+            .with_depth(Some(8));
 
         AvifEncoder { inner: w, encoder }
     }
@@ -96,16 +99,20 @@ impl<W: Write> ImageEncoder for AvifEncoder<W> {
     /// The encoder currently requires all data to be RGBA8, it will be converted internally if
     /// necessary. When data is suitably aligned, i.e. u16 channels to two bytes, then the
     /// conversion may be more efficient.
+    #[track_caller]
     fn write_image(
         mut self,
         data: &[u8],
         width: u32,
         height: u32,
-        color: ColorType,
+        color: ExtendedColorType,
     ) -> ImageResult<()> {
+        let expected_buffer_len = color.buffer_size(width, height);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(color.bytes_per_pixel() as u64),
-            data.len() as u64
+            expected_buffer_len,
+            data.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            data.len(),
         );
 
         self.set_color(color);
@@ -127,7 +134,7 @@ impl<W: Write> ImageEncoder for AvifEncoder<W> {
 
 impl<W: Write> AvifEncoder<W> {
     // Does not currently do anything. Mirrors behaviour of old config function.
-    fn set_color(&mut self, _color: ColorType) {
+    fn set_color(&mut self, _color: ExtendedColorType) {
         // self.config.color_space = ColorSpace::RGB;
     }
 
@@ -136,7 +143,7 @@ impl<W: Write> AvifEncoder<W> {
         data: &'buf [u8],
         width: u32,
         height: u32,
-        color: ColorType,
+        color: ExtendedColorType,
     ) -> ImageResult<RgbColor<'buf>> {
         // Error wrapping utility for color dependent buffer dimensions.
         fn try_from_raw<P: Pixel + 'static>(
@@ -181,12 +188,12 @@ impl<W: Write> AvifEncoder<W> {
                 Err(PodCastError::TargetAlignmentGreaterAndInputNotAligned) => {
                     // Sad, but let's allocate.
                     // bytemuck checks alignment _before_ slop but size mismatch before this..
-                    if buf.len() % std::mem::size_of::<Channel>() != 0 {
+                    if buf.len() % size_of::<Channel>() != 0 {
                         Err(ImageError::Parameter(ParameterError::from_kind(
                             ParameterErrorKind::DimensionMismatch,
                         )))
                     } else {
-                        let len = buf.len() / std::mem::size_of::<Channel>();
+                        let len = buf.len() / size_of::<Channel>();
                         let mut data = vec![Channel::zero(); len];
                         let view = try_cast_slice_mut::<_, u8>(data.as_mut_slice()).unwrap();
                         view.copy_from_slice(buf);
@@ -196,14 +203,14 @@ impl<W: Write> AvifEncoder<W> {
                 Err(err) => {
                     // Are you trying to encode a ZST??
                     Err(ImageError::Parameter(ParameterError::from_kind(
-                        ParameterErrorKind::Generic(format!("{:?}", err)),
+                        ParameterErrorKind::Generic(format!("{err:?}")),
                     )))
                 }
             }
         }
 
         match color {
-            ColorType::Rgb8 => {
+            ExtendedColorType::Rgb8 => {
                 // ravif doesn't do any checks but has some asserts, so we do the checks.
                 let img = try_from_raw::<Rgb<u8>>(data, width, height)?;
                 // Now, internally ravif uses u32 but it takes usize. We could do some checked
@@ -215,12 +222,12 @@ impl<W: Write> AvifEncoder<W> {
                 }
 
                 Ok(RgbColor::Rgb8(Img::new(
-                    rgb::AsPixels::as_pixels(data),
+                    AsPixels::as_pixels(data),
                     width as usize,
                     height as usize,
                 )))
             }
-            ColorType::Rgba8 => {
+            ExtendedColorType::Rgba8 => {
                 // ravif doesn't do any checks but has some asserts, so we do the checks.
                 let img = try_from_raw::<Rgba<u8>>(data, width, height)?;
                 // Now, internally ravif uses u32 but it takes usize. We could do some checked
@@ -232,37 +239,37 @@ impl<W: Write> AvifEncoder<W> {
                 }
 
                 Ok(RgbColor::Rgba8(Img::new(
-                    rgb::AsPixels::as_pixels(data),
+                    AsPixels::as_pixels(data),
                     width as usize,
                     height as usize,
                 )))
             }
             // we need a separate buffer..
-            ColorType::L8 => {
+            ExtendedColorType::L8 => {
                 let image = try_from_raw::<Luma<u8>>(data, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
             }
-            ColorType::La8 => {
+            ExtendedColorType::La8 => {
                 let image = try_from_raw::<LumaA<u8>>(data, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
             }
             // we need to really convert data..
-            ColorType::L16 => {
+            ExtendedColorType::L16 => {
                 let buffer = cast_buffer(data)?;
                 let image = try_from_raw::<Luma<u16>>(&buffer, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
             }
-            ColorType::La16 => {
+            ExtendedColorType::La16 => {
                 let buffer = cast_buffer(data)?;
                 let image = try_from_raw::<LumaA<u16>>(&buffer, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
             }
-            ColorType::Rgb16 => {
+            ExtendedColorType::Rgb16 => {
                 let buffer = cast_buffer(data)?;
                 let image = try_from_raw::<Rgb<u16>>(&buffer, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
             }
-            ColorType::Rgba16 => {
+            ExtendedColorType::Rgba16 => {
                 let buffer = cast_buffer(data)?;
                 let image = try_from_raw::<Rgba<u16>>(&buffer, width, height)?;
                 Ok(RgbColor::Rgba8(convert_into(fallback, image)))
@@ -271,7 +278,7 @@ impl<W: Write> AvifEncoder<W> {
             _ => Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
                     ImageFormat::Avif.into(),
-                    UnsupportedErrorKind::Color(color.into()),
+                    UnsupportedErrorKind::Color(color),
                 ),
             )),
         }

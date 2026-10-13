@@ -5,7 +5,7 @@ use std::{cell::RefCell, mem::transmute, pin::Pin, ptr, time::Duration};
 use futures_core::stream::Stream;
 use glib::{prelude::*, translate::*};
 
-use crate::{Cancellable, DatagramBased, InputMessage, OutputMessage};
+use crate::{ffi, Cancellable, DatagramBased, InputMessage, OutputMessage};
 
 mod sealed {
     pub trait Sealed {}
@@ -57,7 +57,7 @@ pub trait DatagramBasedExtManual: sealed::Sealed + IsA<DatagramBased> + Sized {
             glib::ffi::g_source_set_callback(
                 source,
                 Some(transmute::<
-                    _,
+                    glib::ffi::gpointer,
                     unsafe extern "C" fn(glib::ffi::gpointer) -> glib::ffi::gboolean,
                 >(trampoline)),
                 Box::into_raw(Box::new(RefCell::new(func))) as glib::ffi::gpointer,

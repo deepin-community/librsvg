@@ -5,12 +5,9 @@
 #[cfg(feature = "v2_66")]
 #[cfg_attr(docsrs, doc(cfg(feature = "v2_66")))]
 use crate::FileSetContentsFlags;
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-use crate::Win32OSType;
 use crate::{
-    translate::*, Bytes, ChecksumType, Error, FileTest, FormatSizeFlags, Pid, Source, SpawnFlags,
-    UserDirectory,
+    ffi, translate::*, Bytes, ChecksumType, Error, FileTest, FormatSizeFlags, Pid, Source,
+    SpawnFlags, UserDirectory,
 };
 use std::boxed::Box as Box_;
 
@@ -562,7 +559,7 @@ pub fn on_error_query(prg_name: &str) {
 }
 
 #[doc(alias = "g_on_error_stack_trace")]
-pub fn on_error_stack_trace(prg_name: &str) {
+pub fn on_error_stack_trace(prg_name: Option<&str>) {
     unsafe {
         ffi::g_on_error_stack_trace(prg_name.to_glib_none().0);
     }
@@ -629,11 +626,6 @@ pub fn set_application_name(application_name: &str) {
         ffi::g_set_application_name(application_name.to_glib_none().0);
     }
 }
-
-//#[doc(alias = "g_set_user_dirs")]
-//pub fn set_user_dirs(first_dir_type: &str, : /*Unknown conversion*//*Unimplemented*/Basic: VarArgs) {
-//    unsafe { TODO: call ffi:g_set_user_dirs() }
-//}
 
 #[doc(alias = "g_setenv")]
 pub fn setenv(
@@ -702,6 +694,13 @@ pub fn shell_unquote(
         }
     }
 }
+
+//#[cfg(feature = "v2_82")]
+//#[cfg_attr(docsrs, doc(cfg(feature = "v2_82")))]
+//#[doc(alias = "g_sort_array")]
+//pub fn sort_array(array: /*Unimplemented*/&[&Basic: Pointer], element_size: usize, compare_func: /*Unimplemented*/FnMut(/*Unimplemented*/Option<Basic: Pointer>, /*Unimplemented*/Option<Basic: Pointer>) -> i32, user_data: /*Unimplemented*/Option<Basic: Pointer>) {
+//    unsafe { TODO: call ffi:g_sort_array() }
+//}
 
 #[doc(alias = "g_spaced_primes_closest")]
 pub fn spaced_primes_closest(num: u32) -> u32 {
@@ -863,51 +862,4 @@ pub fn uuid_string_is_valid(str: &str) -> bool {
 #[doc(alias = "g_uuid_string_random")]
 pub fn uuid_string_random() -> crate::GString {
     unsafe { from_glib_full(ffi::g_uuid_string_random()) }
-}
-
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-#[doc(alias = "g_win32_check_windows_version")]
-pub fn win32_check_windows_version(
-    major: i32,
-    minor: i32,
-    spver: i32,
-    os_type: Win32OSType,
-) -> bool {
-    unsafe {
-        from_glib(ffi::g_win32_check_windows_version(
-            major,
-            minor,
-            spver,
-            os_type.into_glib(),
-        ))
-    }
-}
-
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-#[doc(alias = "g_win32_error_message")]
-pub fn win32_error_message(error: i32) -> crate::GString {
-    unsafe { from_glib_full(ffi::g_win32_error_message(error)) }
-}
-
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-#[doc(alias = "g_win32_get_command_line")]
-pub fn win32_get_command_line() -> Vec<crate::GString> {
-    unsafe { FromGlibPtrContainer::from_glib_none(ffi::g_win32_get_command_line()) }
-}
-
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-#[doc(alias = "g_win32_get_windows_version")]
-pub fn win32_get_windows_version() -> u32 {
-    unsafe { ffi::g_win32_get_windows_version() }
-}
-
-#[cfg(windows)]
-#[cfg_attr(docsrs, doc(cfg(windows)))]
-#[doc(alias = "g_win32_getlocale")]
-pub fn win32_getlocale() -> crate::GString {
-    unsafe { from_glib_full(ffi::g_win32_getlocale()) }
 }

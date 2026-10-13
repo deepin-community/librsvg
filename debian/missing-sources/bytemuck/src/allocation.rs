@@ -1,4 +1,5 @@
 #![cfg(feature = "extern_crate_alloc")]
+#![allow(clippy::duplicated_attributes)]
 
 //! Stuff to boost things in the `alloc` crate.
 //!
@@ -19,15 +20,18 @@ use alloc::{
   vec,
   vec::Vec,
 };
-use core::ops::{Deref, DerefMut};
+use core::{
+  mem::{size_of_val, ManuallyDrop},
+  ops::{Deref, DerefMut},
+};
 
-/// As [`try_cast_box`](try_cast_box), but unwraps for you.
+/// As [`try_cast_box`], but unwraps for you.
 #[inline]
 pub fn cast_box<A: NoUninit, B: AnyBitPattern>(input: Box<A>) -> Box<B> {
   try_cast_box(input).map_err(|(e, _v)| e).unwrap()
 }
 
-/// Attempts to cast the content type of a [`Box`](alloc::boxed::Box).
+/// Attempts to cast the content type of a [`Box`].
 ///
 /// On failure you get back an error along with the starting `Box`.
 ///
@@ -64,9 +68,10 @@ pub fn try_cast_box<A: NoUninit, B: AnyBitPattern>(
 #[inline]
 pub fn try_zeroed_box<T: Zeroable>() -> Result<Box<T>, ()> {
   if size_of::<T>() == 0 {
-    // This will not allocate but simply create a dangling pointer.
-    let dangling = core::ptr::NonNull::dangling().as_ptr();
-    return Ok(unsafe { Box::from_raw(dangling) });
+    // This will not allocate but simply create an arbitrary non-null
+    // aligned pointer, valid for Box for a zero-sized pointee.
+    let ptr = core::ptr::NonNull::dangling().as_ptr();
+    return Ok(unsafe { Box::from_raw(ptr) });
   }
   let layout = Layout::new::<T>();
   let ptr = unsafe { alloc_zeroed(layout) };
@@ -121,10 +126,11 @@ pub fn try_zeroed_slice_box<T: Zeroable>(
   length: usize,
 ) -> Result<Box<[T]>, ()> {
   if size_of::<T>() == 0 || length == 0 {
-    // This will not allocate but simply create a dangling slice pointer.
-    let dangling = core::ptr::NonNull::dangling().as_ptr();
-    let dangling_slice = core::ptr::slice_from_raw_parts_mut(dangling, length);
-    return Ok(unsafe { Box::from_raw(dangling_slice) });
+    // This will not allocate but simply create an arbitrary non-null aligned
+    // slice pointer, valid for Box for a zero-sized pointee.
+    let ptr = core::ptr::NonNull::dangling().as_ptr();
+    let slice_ptr = core::ptr::slice_from_raw_parts_mut(ptr, length);
+    return Ok(unsafe { Box::from_raw(slice_ptr) });
   }
   let layout = core::alloc::Layout::array::<T>(length).map_err(|_| ())?;
   let ptr = unsafe { alloc_zeroed(layout) };
@@ -138,12 +144,44 @@ pub fn try_zeroed_slice_box<T: Zeroable>(
   }
 }
 
-/// As [`try_zeroed_slice_box`](try_zeroed_slice_box), but unwraps for you.
+/// As [`try_zeroed_slice_box`], but unwraps for you.
 pub fn zeroed_slice_box<T: Zeroable>(length: usize) -> Box<[T]> {
   try_zeroed_slice_box(length).unwrap()
 }
 
-/// As [`try_cast_slice_box`](try_cast_slice_box), but unwraps for you.
+/// Allocates a `Arc<T>` with all contents being zeroed out.
+#[cfg(all(feature = "alloc_uninit", target_has_atomic = "ptr"))]
+pub fn zeroed_arc<T: Zeroable>() -> Arc<T> {
+  let mut arc = Arc::new_uninit();
+  crate::write_zeroes(Arc::get_mut(&mut arc).unwrap()); // unwrap never fails for a newly allocated Arc
+  unsafe { arc.assume_init() }
+}
+
+/// Allocates a `Arc<[T]>` with all contents being zeroed out.
+#[cfg(all(feature = "alloc_uninit", target_has_atomic = "ptr"))]
+pub fn zeroed_arc_slice<T: Zeroable>(length: usize) -> Arc<[T]> {
+  let mut arc = Arc::new_uninit_slice(length);
+  crate::fill_zeroes(Arc::get_mut(&mut arc).unwrap()); // unwrap never fails for a newly allocated Arc
+  unsafe { arc.assume_init() }
+}
+
+/// Allocates a `Rc<T>` with all contents being zeroed out.
+#[cfg(feature = "alloc_uninit")]
+pub fn zeroed_rc<T: Zeroable>() -> Rc<T> {
+  let mut rc = Rc::new_uninit();
+  crate::write_zeroes(Rc::get_mut(&mut rc).unwrap()); // unwrap never fails for a newly allocated Rc
+  unsafe { rc.assume_init() }
+}
+
+/// Allocates a `Rc<[T]>` with all contents being zeroed out.
+#[cfg(feature = "alloc_uninit")]
+pub fn zeroed_rc_slice<T: Zeroable>(length: usize) -> Rc<[T]> {
+  let mut rc = Rc::new_uninit_slice(length);
+  crate::fill_zeroes(Rc::get_mut(&mut rc).unwrap()); // unwrap never fails for a newly allocated Rc
+  unsafe { rc.assume_init() }
+}
+
+/// As [`try_cast_slice_box`], but unwraps for you.
 #[inline]
 pub fn cast_slice_box<A: NoUninit, B: AnyBitPattern>(
   input: Box<[A]>,
@@ -168,10 +206,13 @@ pub fn try_cast_slice_box<A: NoUninit, B: AnyBitPattern>(
   if align_of::<A>() != align_of::<B>() {
     Err((PodCastError::AlignmentMismatch, input))
   } else if size_of::<A>() != size_of::<B>() {
-    if size_of::<A>() * input.len() % size_of::<B>() != 0 {
+    let input_bytes = size_of_val::<[A]>(&*input);
+    if (size_of::<B>() == 0 && input_bytes != 0)
+      || (size_of::<B>() != 0 && input_bytes % size_of::<B>() != 0)
+    {
       // If the size in bytes of the underlying buffer does not match an exact
       // multiple of the size of B, we cannot cast between them.
-      Err((PodCastError::SizeMismatch, input))
+      Err((PodCastError::OutputSliceWouldHaveSlop, input))
     } else {
       // Because the size is an exact multiple, we can now change the length
       // of the slice and recreate the Box
@@ -181,7 +222,8 @@ pub fn try_cast_slice_box<A: NoUninit, B: AnyBitPattern>(
       // Luckily, Layout only stores two things, the alignment, and the size in
       // bytes. So as long as both of those stay the same, the Layout will
       // remain a valid input to dealloc.
-      let length = size_of::<A>() * input.len() / size_of::<B>();
+      let length =
+        if size_of::<B>() != 0 { input_bytes / size_of::<B>() } else { 0 };
       let box_ptr: *mut A = Box::into_raw(input) as *mut A;
       let ptr: *mut [B] =
         unsafe { core::slice::from_raw_parts_mut(box_ptr as *mut B, length) };
@@ -194,13 +236,13 @@ pub fn try_cast_slice_box<A: NoUninit, B: AnyBitPattern>(
   }
 }
 
-/// As [`try_cast_vec`](try_cast_vec), but unwraps for you.
+/// As [`try_cast_vec`], but unwraps for you.
 #[inline]
 pub fn cast_vec<A: NoUninit, B: AnyBitPattern>(input: Vec<A>) -> Vec<B> {
   try_cast_vec(input).map_err(|(e, _v)| e).unwrap()
 }
 
-/// Attempts to cast the content type of a [`Vec`](alloc::vec::Vec).
+/// Attempts to cast the content type of a [`Vec`].
 ///
 /// On failure you get back an error along with the starting `Vec`.
 ///
@@ -218,8 +260,12 @@ pub fn try_cast_vec<A: NoUninit, B: AnyBitPattern>(
   if align_of::<A>() != align_of::<B>() {
     Err((PodCastError::AlignmentMismatch, input))
   } else if size_of::<A>() != size_of::<B>() {
-    if size_of::<A>() * input.len() % size_of::<B>() != 0
-      || size_of::<A>() * input.capacity() % size_of::<B>() != 0
+    let input_size = size_of_val::<[A]>(&*input);
+    let input_capacity = input.capacity() * size_of::<A>();
+    if (size_of::<B>() == 0 && input_capacity != 0)
+      || (size_of::<B>() != 0
+        && (input_size % size_of::<B>() != 0
+          || input_capacity % size_of::<B>() != 0))
     {
       // If the size in bytes of the underlying buffer does not match an exact
       // multiple of the size of B, we cannot cast between them.
@@ -227,7 +273,7 @@ pub fn try_cast_vec<A: NoUninit, B: AnyBitPattern>(
       // length and capacity are valid under B, as we do not want to
       // change which bytes are considered part of the initialized slice
       // of the Vec
-      Err((PodCastError::SizeMismatch, input))
+      Err((PodCastError::OutputSliceWouldHaveSlop, input))
     } else {
       // Because the size is an exact multiple, we can now change the length and
       // capacity and recreate the Vec
@@ -240,8 +286,10 @@ pub fn try_cast_vec<A: NoUninit, B: AnyBitPattern>(
 
       // Note(Lokathor): First we record the length and capacity, which don't
       // have any secret provenance metadata.
-      let length: usize = size_of::<A>() * input.len() / size_of::<B>();
-      let capacity: usize = size_of::<A>() * input.capacity() / size_of::<B>();
+      let length: usize =
+        if size_of::<B>() != 0 { input_size / size_of::<B>() } else { 0 };
+      let capacity: usize =
+        if size_of::<B>() != 0 { input_capacity / size_of::<B>() } else { 0 };
       // Note(Lokathor): Next we "pre-forget" the old Vec by wrapping with
       // ManuallyDrop, because if we used `core::mem::forget` after taking the
       // pointer then that would invalidate our pointer. In nightly there's a
@@ -286,7 +334,7 @@ pub fn try_cast_vec<A: NoUninit, B: AnyBitPattern>(
 pub fn pod_collect_to_vec<A: NoUninit, B: NoUninit + AnyBitPattern>(
   src: &[A],
 ) -> Vec<B> {
-  let src_size = size_of_val(src);
+  let src_size = core::mem::size_of_val(src);
   // Note(Lokathor): dst_count is rounded up so that the dest will always be at
   // least as many bytes as the src.
   let dst_count = src_size / size_of::<B>()
@@ -299,7 +347,7 @@ pub fn pod_collect_to_vec<A: NoUninit, B: NoUninit + AnyBitPattern>(
   dst
 }
 
-/// As [`try_cast_rc`](try_cast_rc), but unwraps for you.
+/// As [`try_cast_rc`], but unwraps for you.
 #[inline]
 pub fn cast_rc<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
   input: Rc<A>,
@@ -307,7 +355,7 @@ pub fn cast_rc<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
   try_cast_rc(input).map_err(|(e, _v)| e).unwrap()
 }
 
-/// Attempts to cast the content type of a [`Rc`](alloc::rc::Rc).
+/// Attempts to cast the content type of a [`Rc`].
 ///
 /// On failure you get back an error along with the starting `Rc`.
 ///
@@ -335,7 +383,7 @@ pub fn try_cast_rc<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
   }
 }
 
-/// As [`try_cast_arc`](try_cast_arc), but unwraps for you.
+/// As [`try_cast_arc`], but unwraps for you.
 #[inline]
 #[cfg(target_has_atomic = "ptr")]
 pub fn cast_arc<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
@@ -344,7 +392,7 @@ pub fn cast_arc<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
   try_cast_arc(input).map_err(|(e, _v)| e).unwrap()
 }
 
-/// Attempts to cast the content type of a [`Arc`](alloc::sync::Arc).
+/// Attempts to cast the content type of a [`Arc`].
 ///
 /// On failure you get back an error along with the starting `Arc`.
 ///
@@ -376,7 +424,7 @@ pub fn try_cast_arc<
   }
 }
 
-/// As [`try_cast_slice_rc`](try_cast_slice_rc), but unwraps for you.
+/// As [`try_cast_slice_rc`], but unwraps for you.
 #[inline]
 pub fn cast_slice_rc<
   A: NoUninit + AnyBitPattern,
@@ -411,10 +459,13 @@ pub fn try_cast_slice_rc<
   if align_of::<A>() != align_of::<B>() {
     Err((PodCastError::AlignmentMismatch, input))
   } else if size_of::<A>() != size_of::<B>() {
-    if size_of::<A>() * input.len() % size_of::<B>() != 0 {
+    let input_bytes = size_of_val::<[A]>(&*input);
+    if (size_of::<B>() == 0 && input_bytes != 0)
+      || (size_of::<B>() != 0 && input_bytes % size_of::<B>() != 0)
+    {
       // If the size in bytes of the underlying buffer does not match an exact
       // multiple of the size of B, we cannot cast between them.
-      Err((PodCastError::SizeMismatch, input))
+      Err((PodCastError::OutputSliceWouldHaveSlop, input))
     } else {
       // Because the size is an exact multiple, we can now change the length
       // of the slice and recreate the Rc
@@ -423,7 +474,8 @@ pub fn try_cast_slice_rc<
       // acquired from Rc::into_raw() must have the same size alignment and
       // size of the type T in the new Rc<T>. So as long as both the size
       // and alignment stay the same, the Rc will remain a valid Rc.
-      let length = size_of::<A>() * input.len() / size_of::<B>();
+      let length =
+        if size_of::<B>() != 0 { input_bytes / size_of::<B>() } else { 0 };
       let rc_ptr: *const A = Rc::into_raw(input) as *const A;
       // Must use ptr::slice_from_raw_parts, because we cannot make an
       // intermediate const reference, because it has mutable provenance,
@@ -438,7 +490,7 @@ pub fn try_cast_slice_rc<
   }
 }
 
-/// As [`try_cast_slice_arc`](try_cast_slice_arc), but unwraps for you.
+/// As [`try_cast_slice_arc`], but unwraps for you.
 #[inline]
 #[cfg(target_has_atomic = "ptr")]
 pub fn cast_slice_arc<
@@ -475,10 +527,13 @@ pub fn try_cast_slice_arc<
   if align_of::<A>() != align_of::<B>() {
     Err((PodCastError::AlignmentMismatch, input))
   } else if size_of::<A>() != size_of::<B>() {
-    if size_of::<A>() * input.len() % size_of::<B>() != 0 {
+    let input_bytes = size_of_val::<[A]>(&*input);
+    if (size_of::<B>() == 0 && input_bytes != 0)
+      || (size_of::<B>() != 0 && input_bytes % size_of::<B>() != 0)
+    {
       // If the size in bytes of the underlying buffer does not match an exact
       // multiple of the size of B, we cannot cast between them.
-      Err((PodCastError::SizeMismatch, input))
+      Err((PodCastError::OutputSliceWouldHaveSlop, input))
     } else {
       // Because the size is an exact multiple, we can now change the length
       // of the slice and recreate the Arc
@@ -487,7 +542,8 @@ pub fn try_cast_slice_arc<
       // acquired from Arc::into_raw() must have the same size alignment and
       // size of the type T in the new Arc<T>. So as long as both the size
       // and alignment stay the same, the Arc will remain a valid Arc.
-      let length = size_of::<A>() * input.len() / size_of::<B>();
+      let length =
+        if size_of::<B>() != 0 { input_bytes / size_of::<B>() } else { 0 };
       let arc_ptr: *const A = Arc::into_raw(input) as *const A;
       // Must use ptr::slice_from_raw_parts, because we cannot make an
       // intermediate const reference, because it has mutable provenance,
@@ -512,7 +568,7 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     Self: Sized,
     Inner: Sized,
   {
-    let mut s = core::mem::ManuallyDrop::new(s);
+    let mut s = ManuallyDrop::new(s);
 
     let length = s.len();
     let capacity = s.capacity();
@@ -531,6 +587,11 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
   /// type.
   #[inline]
   fn wrap_box(s: Box<Inner>) -> Box<Self> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -551,10 +612,14 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     }
   }
 
-  /// Convert an [`Rc`](alloc::rc::Rc) to the inner type into an `Rc` to the
-  /// wrapper type.
+  /// Convert an [`Rc`] to the inner type into an `Rc` to the wrapper type.
   #[inline]
   fn wrap_rc(s: Rc<Inner>) -> Rc<Self> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -573,11 +638,15 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     }
   }
 
-  /// Convert an [`Arc`](alloc::sync::Arc) to the inner type into an `Arc` to
-  /// the wrapper type.
+  /// Convert an [`Arc`] to the inner type into an `Arc` to the wrapper type.
   #[inline]
   #[cfg(target_has_atomic = "ptr")]
   fn wrap_arc(s: Arc<Inner>) -> Arc<Self> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -602,7 +671,7 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     Self: Sized,
     Inner: Sized,
   {
-    let mut s = core::mem::ManuallyDrop::new(s);
+    let mut s = ManuallyDrop::new(s);
 
     let length = s.len();
     let capacity = s.capacity();
@@ -621,6 +690,11 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
   /// type.
   #[inline]
   fn peel_box(s: Box<Self>) -> Box<Inner> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -641,10 +715,14 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     }
   }
 
-  /// Convert an [`Rc`](alloc::rc::Rc) to the wrapper type into an `Rc` to the
-  /// inner type.
+  /// Convert an [`Rc`] to the wrapper type into an `Rc` to the inner type.
   #[inline]
   fn peel_rc(s: Rc<Self>) -> Rc<Inner> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -663,11 +741,15 @@ pub trait TransparentWrapperAlloc<Inner: ?Sized>:
     }
   }
 
-  /// Convert an [`Arc`](alloc::sync::Arc) to the wrapper type into an `Arc` to
-  /// the inner type.
+  /// Convert an [`Arc`] to the wrapper type into an `Arc` to the inner type.
   #[inline]
   #[cfg(target_has_atomic = "ptr")]
   fn peel_arc(s: Arc<Self>) -> Arc<Inner> {
+    // The unsafe contract requires that these two have
+    // identical representations, and thus identical pointer metadata.
+    // Assert that Self and Inner have the same pointer size,
+    // which is the best we can do to assert their metadata is the same type
+    // on stable.
     assert!(size_of::<*mut Inner>() == size_of::<*mut Self>());
 
     unsafe {
@@ -694,8 +776,9 @@ impl<I: ?Sized, T: ?Sized + TransparentWrapper<I>> TransparentWrapperAlloc<I>
 
 /// As `Box<[u8]>`, but remembers the original alignment.
 pub struct BoxBytes {
-  // SAFETY: `ptr` is owned, was allocated with `layout`, and points to
-  // `layout.size()` initialized bytes.
+  // SAFETY: `ptr` is aligned to `layout.align()`, points to
+  // `layout.size()` initialized bytes, and, if `layout.size() > 0`,
+  // is owned and was allocated with the global allocator with `layout`.
   ptr: NonNull<u8>,
   layout: Layout,
 }
@@ -722,58 +805,146 @@ impl DerefMut for BoxBytes {
 
 impl Drop for BoxBytes {
   fn drop(&mut self) {
-    // SAFETY: See type invariant.
-    unsafe { alloc::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
+    if self.layout.size() != 0 {
+      // SAFETY: See type invariant: if `self.layout.size() != 0`, then
+      // `self.ptr` is owned and was allocated with `self.layout`.
+      unsafe { alloc::alloc::dealloc(self.ptr.as_ptr(), self.layout) };
+    }
   }
 }
 
-impl<T: NoUninit> From<Box<T>> for BoxBytes {
+impl<T: ?Sized + sealed::BoxBytesOf> From<Box<T>> for BoxBytes {
   fn from(value: Box<T>) -> Self {
+    value.box_bytes_of()
+  }
+}
+
+mod sealed {
+  use crate::{BoxBytes, PodCastError};
+  use alloc::boxed::Box;
+
+  pub trait BoxBytesOf {
+    fn box_bytes_of(self: Box<Self>) -> BoxBytes;
+  }
+
+  pub trait FromBoxBytes {
+    fn try_from_box_bytes(
+      bytes: BoxBytes,
+    ) -> Result<Box<Self>, (PodCastError, BoxBytes)>;
+  }
+}
+
+impl<T: NoUninit> sealed::BoxBytesOf for T {
+  fn box_bytes_of(self: Box<Self>) -> BoxBytes {
     let layout = Layout::new::<T>();
-    let ptr = Box::into_raw(value) as *mut u8;
+    let ptr = Box::into_raw(self) as *mut u8;
     // SAFETY: Box::into_raw() returns a non-null pointer.
     let ptr = unsafe { NonNull::new_unchecked(ptr) };
     BoxBytes { ptr, layout }
   }
 }
 
+impl<T: NoUninit> sealed::BoxBytesOf for [T] {
+  fn box_bytes_of(self: Box<Self>) -> BoxBytes {
+    let layout = Layout::for_value::<[T]>(&self);
+    let ptr = Box::into_raw(self) as *mut u8;
+    // SAFETY: Box::into_raw() returns a non-null pointer.
+    let ptr = unsafe { NonNull::new_unchecked(ptr) };
+    BoxBytes { ptr, layout }
+  }
+}
+
+impl sealed::BoxBytesOf for str {
+  fn box_bytes_of(self: Box<Self>) -> BoxBytes {
+    self.into_boxed_bytes().box_bytes_of()
+  }
+}
+
+impl<T: AnyBitPattern> sealed::FromBoxBytes for T {
+  fn try_from_box_bytes(
+    bytes: BoxBytes,
+  ) -> Result<Box<Self>, (PodCastError, BoxBytes)> {
+    let layout = Layout::new::<T>();
+    if bytes.layout.align() != layout.align() {
+      Err((PodCastError::AlignmentMismatch, bytes))
+    } else if bytes.layout.size() != layout.size() {
+      Err((PodCastError::SizeMismatch, bytes))
+    } else {
+      let (ptr, _) = bytes.into_raw_parts();
+      // SAFETY: See BoxBytes type invariant.
+      Ok(unsafe { Box::from_raw(ptr.as_ptr() as *mut T) })
+    }
+  }
+}
+
+impl<T: AnyBitPattern> sealed::FromBoxBytes for [T] {
+  fn try_from_box_bytes(
+    bytes: BoxBytes,
+  ) -> Result<Box<Self>, (PodCastError, BoxBytes)> {
+    let single_layout = Layout::new::<T>();
+    if bytes.layout.align() != single_layout.align() {
+      Err((PodCastError::AlignmentMismatch, bytes))
+    } else if (single_layout.size() == 0 && bytes.layout.size() != 0)
+      || (single_layout.size() != 0
+        && bytes.layout.size() % single_layout.size() != 0)
+    {
+      Err((PodCastError::OutputSliceWouldHaveSlop, bytes))
+    } else {
+      let (ptr, layout) = bytes.into_raw_parts();
+      let length = if single_layout.size() != 0 {
+        layout.size() / single_layout.size()
+      } else {
+        0
+      };
+      let ptr =
+        core::ptr::slice_from_raw_parts_mut(ptr.as_ptr() as *mut T, length);
+      // SAFETY: See BoxBytes type invariant.
+      Ok(unsafe { Box::from_raw(ptr) })
+    }
+  }
+}
+
 /// Re-interprets `Box<T>` as `BoxBytes`.
+///
+/// `T` must be either [`Sized`] and [`NoUninit`],
+/// [`[U]`](slice) where `U: NoUninit`, or [`str`].
 #[inline]
-pub fn box_bytes_of<T: NoUninit>(input: Box<T>) -> BoxBytes {
-  input.into()
+pub fn box_bytes_of<T: sealed::BoxBytesOf + ?Sized>(input: Box<T>) -> BoxBytes {
+  input.box_bytes_of()
 }
 
 /// Re-interprets `BoxBytes` as `Box<T>`.
+///
+/// `T` must be either [`Sized`] + [`AnyBitPattern`], or
+/// [`[U]`](slice) where `U: AnyBitPattern`.
 ///
 /// ## Panics
 ///
 /// This is [`try_from_box_bytes`] but will panic on error and the input will be
 /// dropped.
 #[inline]
-pub fn from_box_bytes<T: AnyBitPattern>(input: BoxBytes) -> Box<T> {
+#[cfg_attr(feature = "track_caller", track_caller)]
+pub fn from_box_bytes<T: sealed::FromBoxBytes + ?Sized>(
+  input: BoxBytes,
+) -> Box<T> {
   try_from_box_bytes(input).map_err(|(error, _)| error).unwrap()
 }
 
 /// Re-interprets `BoxBytes` as `Box<T>`.
 ///
-/// ## Panics
+/// `T` must be either [`Sized`] + [`AnyBitPattern`], or
+/// [`[U]`](slice) where `U: AnyBitPattern`.
 ///
-/// * If the input isn't aligned for the new type
-/// * If the input's length isn’t exactly the size of the new type
+/// Returns `Err`:
+/// * If the input isn't aligned for `T`.
+/// * If `T: Sized` and the input's length isn't exactly the size of `T`.
+/// * If `T = [U]` and the input's length isn't exactly a multiple of the size
+///   of `U`.
 #[inline]
-pub fn try_from_box_bytes<T: AnyBitPattern>(
+pub fn try_from_box_bytes<T: sealed::FromBoxBytes + ?Sized>(
   input: BoxBytes,
 ) -> Result<Box<T>, (PodCastError, BoxBytes)> {
-  let layout = Layout::new::<T>();
-  if input.layout.align() != layout.align() {
-    return Err((PodCastError::AlignmentMismatch, input));
-  } else if input.layout.size() != layout.size() {
-    return Err((PodCastError::SizeMismatch, input));
-  } else {
-    let (ptr, _) = input.into_raw_parts();
-    // SAFETY: See type invariant.
-    Ok(unsafe { Box::from_raw(ptr.as_ptr() as *mut T) })
-  }
+  T::try_from_box_bytes(input)
 }
 
 impl BoxBytes {

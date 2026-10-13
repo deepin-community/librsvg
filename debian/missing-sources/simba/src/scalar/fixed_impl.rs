@@ -17,7 +17,7 @@ use std::ops::{
     Add, AddAssign, Div, DivAssign, Mul, MulAssign, Neg, Rem, RemAssign, Sub, SubAssign,
 };
 
-macro_rules! impl_fixed_type(
+macro_rules! impl_fixed_type (
     ($($FixedI: ident, $Int: ident, $LeEqDim: ident, $LeEqDim1: ident, $LeEqDim2: ident, $LeEqDim3: ident, $LeEqDim4: ident;)*) => {$(
         #[derive(Copy, Clone)]
         #[repr(transparent)]
@@ -58,7 +58,7 @@ macro_rules! impl_fixed_type(
         impl<Fract: $LeEqDim> PartialOrd for $FixedI<Fract> {
             #[inline(always)]
             fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                self.0.partial_cmp(&other.0)
+                Some(self.cmp(other))
             }
         }
 
@@ -95,13 +95,9 @@ macro_rules! impl_fixed_type(
 
         impl<Fract: $LeEqDim> PrimitiveSimdValue for $FixedI<Fract> {}
         impl<Fract: $LeEqDim> SimdValue for $FixedI<Fract> {
+            const LANES: usize = 1;
             type Element = Self;
             type SimdBool = bool;
-
-            #[inline(always)]
-            fn lanes() -> usize {
-                1
-            }
 
             #[inline(always)]
             fn splat(val: Self::Element) -> Self {
@@ -308,6 +304,28 @@ macro_rules! impl_fixed_type(
             #[inline]
             fn from_superset_unchecked(element: &$FixedI<Fract>) -> Self {
                 element.0.to_num::<f64>()
+            }
+
+            #[inline]
+            fn is_in_subset(_: &$FixedI<Fract>) -> bool {
+                true
+            }
+        }
+
+        impl<Fract: $LeEqDim> SubsetOf<$FixedI<Fract>> for f32 {
+            #[inline]
+            fn to_superset(&self) -> $FixedI<Fract> {
+                $FixedI(fixed::$FixedI::from_num(*self))
+            }
+
+            #[inline]
+            fn from_superset(element: &$FixedI<Fract>) -> Option<Self> {
+                Some(Self::from_superset_unchecked(element))
+            }
+
+            #[inline]
+            fn from_superset_unchecked(element: &$FixedI<Fract>) -> Self {
+                element.0.to_num::<f32>()
             }
 
             #[inline]

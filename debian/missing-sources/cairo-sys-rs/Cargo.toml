@@ -13,7 +13,7 @@
 edition = "2021"
 rust-version = "1.70"
 name = "cairo-sys-rs"
-version = "0.19.1"
+version = "0.20.0"
 authors = ["The gtk-rs Project Developers"]
 build = "build.rs"
 exclude = ["gir-files/*"]
@@ -28,6 +28,18 @@ keywords = [
 license = "MIT"
 repository = "https://github.com/gtk-rs/gtk-rs-core"
 
+[package.metadata.docs.rs]
+all-features = true
+rustc-args = [
+    "--cfg",
+    "docsrs",
+]
+rustdoc-args = [
+    "--cfg",
+    "docsrs",
+    "--generate-link-to-definition",
+]
+
 [package.metadata.system-deps.cairo]
 name = "cairo"
 version = "1.14"
@@ -36,7 +48,7 @@ version = "1.14"
 version = "1.16"
 
 [package.metadata.system-deps.cairo.v1_18]
-version = "1.17"
+version = "1.18"
 
 [package.metadata.system-deps.cairo-gobject]
 feature = "use_glib"
@@ -47,13 +59,13 @@ version = "1.14"
 version = "1.16"
 
 [package.metadata.system-deps.cairo-gobject.v1_18]
-version = "1.17"
+version = "1.18"
 
 [lib]
 name = "cairo_sys"
 
 [dependencies.glib-sys]
-version = "0.19"
+version = "0.20"
 optional = true
 
 [dependencies.libc]
@@ -65,7 +77,7 @@ features = ["xlib"]
 optional = true
 
 [build-dependencies.system-deps]
-version = "6"
+version = "7"
 
 [features]
 freetype = []

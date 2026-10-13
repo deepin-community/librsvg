@@ -229,6 +229,59 @@ macro_rules! impl_shr_t_for_i32x8 {
 
 impl_shr_t_for_i32x8!(i8, u8, i16, u16, i32, u32, i64, u64, i128, u128);
 
+/// Shifts lanes by the corresponding lane.
+///
+/// Bitwise shift-right; yields `self >> mask(rhs)`, where mask removes any
+/// high-order bits of `rhs` that would cause the shift to exceed the bitwidth
+/// of the type. (same as `wrapping_shr`)
+impl Shr<i32x8> for i32x8 {
+  type Output = Self;
+
+  #[inline]
+  #[must_use]
+  fn shr(self, rhs: i32x8) -> Self::Output {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        // ensure same behavior as scalar
+        let shift_by = bitand_m256i(rhs.avx2, set_splat_i32_m256i(31));
+        Self { avx2: shr_each_i32_m256i(self.avx2, shift_by ) }
+      } else {
+        Self {
+          a : self.a.shr(rhs.a),
+          b : self.b.shr(rhs.b),
+        }
+      }
+    }
+  }
+}
+
+/// Shifts lanes by the corresponding lane.
+///
+/// Bitwise shift-left; yields `self << mask(rhs)`, where mask removes any
+/// high-order bits of `rhs` that would cause the shift to exceed the bitwidth
+/// of the type. (same as `wrapping_shl`)
+impl Shl<i32x8> for i32x8 {
+  type Output = Self;
+
+  #[inline]
+  #[must_use]
+  fn shl(self, rhs: i32x8) -> Self::Output {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        // ensure same behavior as scalar wrapping_shl by masking the shift count
+        let shift_by = bitand_m256i(rhs.avx2, set_splat_i32_m256i(31));
+        // shl is the same for unsigned and signed
+        Self { avx2: shl_each_u32_m256i(self.avx2, shift_by) }
+      } else {
+        Self {
+          a : self.a.shl(rhs.a),
+          b : self.b.shl(rhs.b),
+        }
+      }
+    }
+  }
+}
+
 impl CmpEq for i32x8 {
   type Output = Self;
   #[inline]
@@ -282,6 +335,15 @@ impl CmpLt for i32x8 {
     }
   }
 }
+
+impl From<i16x8> for i32x8 {
+  #[inline]
+  #[must_use]
+  fn from(value: i16x8) -> Self {
+    i32x8::from_i16x8(value)
+  }
+}
+
 impl i32x8 {
   #[inline]
   #[must_use]
@@ -289,7 +351,7 @@ impl i32x8 {
     Self::from(array)
   }
 
-  /// widens and sign extends to i32x8
+  /// widens and sign extends to `i32x8`
   #[inline]
   #[must_use]
   pub fn from_i16x8(v: i16x8) -> Self {
@@ -303,14 +365,41 @@ impl i32x8 {
         }
       } else {
         i32x8::new([
-          v.as_array_ref()[0] as i32,
-          v.as_array_ref()[1] as i32,
-          v.as_array_ref()[2] as i32,
-          v.as_array_ref()[3] as i32,
-          v.as_array_ref()[4] as i32,
-          v.as_array_ref()[5] as i32,
-          v.as_array_ref()[6] as i32,
-          v.as_array_ref()[7] as i32,
+          i32::from(v.as_array_ref()[0]),
+          i32::from(v.as_array_ref()[1]),
+          i32::from(v.as_array_ref()[2]),
+          i32::from(v.as_array_ref()[3]),
+          i32::from(v.as_array_ref()[4]),
+          i32::from(v.as_array_ref()[5]),
+          i32::from(v.as_array_ref()[6]),
+          i32::from(v.as_array_ref()[7]),
+        ])
+      }
+    }
+  }
+
+  /// widens and zero extends to `i32x8`
+  #[inline]
+  #[must_use]
+  pub fn from_u16x8(v: u16x8) -> Self {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        i32x8 { avx2:convert_to_i32_m256i_from_u16_m128i(v.sse) }
+      } else if #[cfg(target_feature="sse2")] {
+        i32x8 {
+          a: i32x4 { sse: shr_imm_u32_m128i::<16>( unpack_low_i16_m128i(v.sse, v.sse)) },
+          b: i32x4 { sse: shr_imm_u32_m128i::<16>( unpack_high_i16_m128i(v.sse, v.sse)) },
+        }
+      } else {
+        i32x8::new([
+          i32::from(v.as_array_ref()[0]),
+          i32::from(v.as_array_ref()[1]),
+          i32::from(v.as_array_ref()[2]),
+          i32::from(v.as_array_ref()[3]),
+          i32::from(v.as_array_ref()[4]),
+          i32::from(v.as_array_ref()[5]),
+          i32::from(v.as_array_ref()[6]),
+          i32::from(v.as_array_ref()[7]),
         ])
       }
     }
@@ -369,6 +458,22 @@ impl i32x8 {
       }
     }
   }
+
+  #[inline]
+  #[must_use]
+  pub fn unsigned_abs(self) -> u32x8 {
+    pick! {
+      if #[cfg(target_feature="avx2")] {
+        u32x8 { avx2: abs_i32_m256i(self.avx2) }
+      } else {
+        u32x8 {
+          a : self.a.unsigned_abs(),
+          b : self.b.unsigned_abs(),
+        }
+      }
+    }
+  }
+
   #[inline]
   #[must_use]
   pub fn max(self, rhs: Self) -> Self {
@@ -417,7 +522,8 @@ impl i32x8 {
   pub fn move_mask(self) -> i32 {
     pick! {
       if #[cfg(target_feature="avx2")] {
-        move_mask_m256(cast(self.avx2)) as i32
+        // use f32 move_mask since it is the same size as i32
+        move_mask_m256(cast(self.avx2))
       } else {
         self.a.move_mask() | (self.b.move_mask() << 4)
       }
@@ -429,7 +535,7 @@ impl i32x8 {
   pub fn any(self) -> bool {
     pick! {
       if #[cfg(target_feature="avx2")] {
-        ((move_mask_i8_m256i(self.avx2) as u32) & 0b10001000100010001000100010001000) != 0
+        move_mask_m256(cast(self.avx2)) != 0
       } else {
         (self.a | self.b).any()
       }
@@ -440,7 +546,7 @@ impl i32x8 {
   pub fn all(self) -> bool {
     pick! {
       if #[cfg(target_feature="avx2")] {
-        ((move_mask_i8_m256i(self.avx2) as u32) & 0b10001000100010001000100010001000) == 0b10001000100010001000100010001000
+        move_mask_m256(cast(self.avx2)) == 0b11111111
       } else {
         (self.a & self.b).all()
       }
@@ -452,7 +558,7 @@ impl i32x8 {
     !self.any()
   }
 
-  /// Transpose matrix of 8x8 i32 matrix. Currently only accelerated on AVX2.
+  /// Transpose matrix of 8x8 `i32` matrix. Currently only accelerated on AVX2.
   #[must_use]
   #[inline]
   pub fn transpose(data: [i32x8; 8]) -> [i32x8; 8] {

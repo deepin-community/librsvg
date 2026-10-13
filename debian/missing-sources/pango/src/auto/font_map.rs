@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{Context, Font, FontDescription, FontFamily, Fontset, Language};
+use crate::{ffi, Context, Font, FontDescription, FontFamily, Fontset, Language};
 use glib::{prelude::*, translate::*};
 
 glib::wrapper! {
@@ -97,6 +97,27 @@ pub trait FontMapExt: IsA<FontMap> + sealed::Sealed + 'static {
                 context.to_glib_none().0,
                 desc.to_glib_none().0,
                 mut_override(language.to_glib_none().0),
+            ))
+        }
+    }
+
+    #[cfg(feature = "v1_52")]
+    #[cfg_attr(docsrs, doc(cfg(feature = "v1_52")))]
+    #[doc(alias = "pango_font_map_reload_font")]
+    fn reload_font(
+        &self,
+        font: &impl IsA<Font>,
+        scale: f64,
+        context: Option<&Context>,
+        variations: Option<&str>,
+    ) -> Font {
+        unsafe {
+            from_glib_full(ffi::pango_font_map_reload_font(
+                self.as_ref().to_glib_none().0,
+                font.as_ref().to_glib_none().0,
+                scale,
+                context.to_glib_none().0,
+                variations.to_glib_none().0,
             ))
         }
     }

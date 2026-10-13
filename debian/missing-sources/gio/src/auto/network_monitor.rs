@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{AsyncResult, Cancellable, Initable, NetworkConnectivity, SocketConnectable};
+use crate::{ffi, AsyncResult, Cancellable, Initable, NetworkConnectivity, SocketConnectable};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -137,6 +137,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
 
     #[doc(alias = "g_network_monitor_get_network_available")]
     #[doc(alias = "get_network_available")]
+    #[doc(alias = "network-available")]
     fn is_network_available(&self) -> bool {
         unsafe {
             from_glib(ffi::g_network_monitor_get_network_available(
@@ -147,6 +148,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
 
     #[doc(alias = "g_network_monitor_get_network_metered")]
     #[doc(alias = "get_network_metered")]
+    #[doc(alias = "network-metered")]
     fn is_network_metered(&self) -> bool {
         unsafe {
             from_glib(ffi::g_network_monitor_get_network_metered(
@@ -176,7 +178,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"network-changed\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     network_changed_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -202,7 +204,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::connectivity\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_connectivity_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -228,7 +230,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::network-available\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_network_available_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),
@@ -254,7 +256,7 @@ pub trait NetworkMonitorExt: IsA<NetworkMonitor> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::network-metered\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_network_metered_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

@@ -2,9 +2,18 @@
 #![warn(missing_docs)]
 #![allow(clippy::match_like_matches_macro)]
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::result_unit_err)]
+#![allow(clippy::type_complexity)]
 #![cfg_attr(feature = "nightly_docs", feature(doc_cfg))]
 #![cfg_attr(feature = "nightly_portable_simd", feature(portable_simd))]
-#![cfg_attr(feature = "nightly_stdsimd", feature(stdarch_x86_avx512))]
+#![cfg_attr(feature = "nightly_float", feature(f16, f128))]
+#![cfg_attr(
+  all(
+    feature = "nightly_stdsimd",
+    any(target_arch = "x86_64", target_arch = "x86")
+  ),
+  feature(stdarch_x86_avx512)
+)]
 
 //! This crate gives small utilities for casting between plain data types.
 //!
@@ -77,6 +86,7 @@
 //!   instead of just for a select list of array lengths.
 //! * `must_cast`: Provides the `must_` functions, which will compile error if
 //!   the requested cast can't be statically verified.
+//! * `const_zeroed`: Provides a const version of the `zeroed` function.
 
 #[cfg(all(target_arch = "aarch64", feature = "aarch64_simd"))]
 use core::arch::aarch64;
@@ -87,7 +97,12 @@ use core::arch::x86;
 #[cfg(target_arch = "x86_64")]
 use core::arch::x86_64;
 //
-use core::{marker::*, mem::*, num::*, ptr::*};
+use core::{
+  marker::*,
+  mem::{align_of, size_of},
+  num::*,
+  ptr::*,
+};
 
 // Used from macros to ensure we aren't using some locally defined name and
 // actually are referencing libcore. This also would allow pre-2018 edition
@@ -108,6 +123,20 @@ macro_rules! transmute {
   ($val:expr) => {
     ::core::mem::transmute_copy(&::core::mem::ManuallyDrop::new($val))
   };
+  // This arm is for use in const contexts, where the borrow required to use
+  // transmute_copy poses an issue since the compiler hedges that the type
+  // being borrowed could have interior mutability.
+  ($srcty:ty; $dstty:ty; $val:expr) => {{
+    #[repr(C)]
+    union Transmute<A, B> {
+      src: ::core::mem::ManuallyDrop<A>,
+      dst: ::core::mem::ManuallyDrop<B>,
+    }
+    ::core::mem::ManuallyDrop::into_inner(
+      Transmute::<$srcty, $dstty> { src: ::core::mem::ManuallyDrop::new($val) }
+        .dst,
+    )
+  }};
 }
 
 /// A macro to implement marker traits for various simd types.
@@ -183,15 +212,14 @@ pub use bytemuck_derive::{
 /// The things that can go wrong when casting between [`Pod`] data forms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PodCastError {
-  /// You tried to cast a slice to an element type with a higher alignment
-  /// requirement but the slice wasn't aligned.
+  /// You tried to cast a reference into a reference to a type with a higher
+  /// alignment requirement but the input reference wasn't aligned.
   TargetAlignmentGreaterAndInputNotAligned,
-  /// If the element size changes then the output slice changes length
-  /// accordingly. If the output slice wouldn't be a whole number of elements
-  /// then the conversion fails.
+  /// If the element size of a slice changes, then the output slice changes
+  /// length accordingly. If the output slice wouldn't be a whole number of
+  /// elements, then the conversion fails.
   OutputSliceWouldHaveSlop,
-  /// When casting a slice you can't convert between ZST elements and non-ZST
-  /// elements. When casting an individual `T`, `&T`, or `&mut T` value the
+  /// When casting an individual `T`, `&T`, or `&mut T` value the
   /// source size and destination size must be an exact match.
   SizeMismatch,
   /// For this type of cast the alignments must be exactly the same and they
@@ -236,6 +264,7 @@ pub fn bytes_of_mut<T: NoUninit + AnyBitPattern>(t: &mut T) -> &mut [u8] {
 ///
 /// This is like [`try_from_bytes`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn from_bytes<T: AnyBitPattern>(s: &[u8]) -> &T {
   unsafe { internal::from_bytes(s) }
 }
@@ -246,6 +275,7 @@ pub fn from_bytes<T: AnyBitPattern>(s: &[u8]) -> &T {
 ///
 /// This is like [`try_from_bytes_mut`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn from_bytes_mut<T: NoUninit + AnyBitPattern>(s: &mut [u8]) -> &mut T {
   unsafe { internal::from_bytes_mut(s) }
 }
@@ -272,6 +302,7 @@ pub fn try_pod_read_unaligned<T: AnyBitPattern>(
 /// ## Panics
 /// * This is like `try_pod_read_unaligned` but will panic on failure.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn pod_read_unaligned<T: AnyBitPattern>(bytes: &[u8]) -> T {
   unsafe { internal::pod_read_unaligned(bytes) }
 }
@@ -300,34 +331,37 @@ pub fn try_from_bytes_mut<T: NoUninit + AnyBitPattern>(
   unsafe { internal::try_from_bytes_mut(s) }
 }
 
-/// Cast `T` into `U`
+/// Cast `A` into `B`
 ///
 /// ## Panics
 ///
 /// * This is like [`try_cast`], but will panic on a size mismatch.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn cast<A: NoUninit, B: AnyBitPattern>(a: A) -> B {
   unsafe { internal::cast(a) }
 }
 
-/// Cast `&mut T` into `&mut U`.
+/// Cast `&mut A` into `&mut B`.
 ///
 /// ## Panics
 ///
 /// This is [`try_cast_mut`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn cast_mut<A: NoUninit + AnyBitPattern, B: NoUninit + AnyBitPattern>(
   a: &mut A,
 ) -> &mut B {
   unsafe { internal::cast_mut(a) }
 }
 
-/// Cast `&T` into `&U`.
+/// Cast `&A` into `&B`.
 ///
 /// ## Panics
 ///
 /// This is [`try_cast_ref`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn cast_ref<A: NoUninit, B: AnyBitPattern>(a: &A) -> &B {
   unsafe { internal::cast_ref(a) }
 }
@@ -338,16 +372,18 @@ pub fn cast_ref<A: NoUninit, B: AnyBitPattern>(a: &A) -> &B {
 ///
 /// This is [`try_cast_slice`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn cast_slice<A: NoUninit, B: AnyBitPattern>(a: &[A]) -> &[B] {
   unsafe { internal::cast_slice(a) }
 }
 
-/// Cast `&mut [T]` into `&mut [U]`.
+/// Cast `&mut [A]` into `&mut [B]`.
 ///
 /// ## Panics
 ///
 /// This is [`try_cast_slice_mut`] but will panic on error.
 #[inline]
+#[cfg_attr(feature = "track_caller", track_caller)]
 pub fn cast_slice_mut<
   A: NoUninit + AnyBitPattern,
   B: NoUninit + AnyBitPattern,
@@ -378,7 +414,7 @@ pub fn pod_align_to_mut<
   unsafe { vals.align_to_mut::<U>() }
 }
 
-/// Try to cast `T` into `U`.
+/// Try to cast `A` into `B`.
 ///
 /// Note that for this particular type of cast, alignment isn't a factor. The
 /// input value is semantically copied into the function and then returned to a
@@ -395,7 +431,7 @@ pub fn try_cast<A: NoUninit, B: AnyBitPattern>(
   unsafe { internal::try_cast(a) }
 }
 
-/// Try to convert a `&T` into `&U`.
+/// Try to convert a `&A` into `&B`.
 ///
 /// ## Failure
 ///
@@ -408,7 +444,7 @@ pub fn try_cast_ref<A: NoUninit, B: AnyBitPattern>(
   unsafe { internal::try_cast_ref(a) }
 }
 
-/// Try to convert a `&mut T` into `&mut U`.
+/// Try to convert a `&mut A` into `&mut B`.
 ///
 /// As [`try_cast_ref`], but `mut`.
 #[inline]
@@ -496,7 +532,15 @@ pub fn fill_zeroes<T: Zeroable>(slice: &mut [T]) {
     slice.iter_mut().for_each(write_zeroes);
   } else {
     // Otherwise we can be really fast and just fill everthing with zeros.
-    let len = core::mem::size_of_val::<[T]>(slice);
-    unsafe { core::ptr::write_bytes(slice.as_mut_ptr() as *mut u8, 0u8, len) }
+    let len = slice.len();
+    unsafe { core::ptr::write_bytes(slice.as_mut_ptr(), 0u8, len) }
   }
+}
+
+/// Same as [`Zeroable::zeroed`], but as a `const fn` const.
+#[cfg(feature = "const_zeroed")]
+#[inline]
+#[must_use]
+pub const fn zeroed<T: Zeroable>() -> T {
+  unsafe { core::mem::zeroed() }
 }

@@ -1,7 +1,6 @@
 #![allow(clippy::too_many_arguments)]
 
 use std::borrow::Cow;
-use std::convert::TryFrom;
 use std::io::{self, Write};
 
 use crate::error::{
@@ -10,7 +9,7 @@ use crate::error::{
 };
 use crate::image::{ImageEncoder, ImageFormat};
 use crate::utils::clamp;
-use crate::{ColorType, GenericImageView, ImageBuffer, Luma, LumaA, Pixel, Rgb, Rgba};
+use crate::{ExtendedColorType, GenericImageView, ImageBuffer, Luma, Pixel, Rgb};
 
 use super::entropy::build_huff_lut_const;
 use super::transform;
@@ -220,9 +219,7 @@ impl<W: Write> BitWriter<W> {
     fn huffman_encode(&mut self, val: u8, table: &[(u8, u16); 256]) -> io::Result<()> {
         let (size, code) = table[val as usize];
 
-        if size > 16 {
-            panic!("bad huffman value");
-        }
+        assert!(size <= 16, "bad huffman value");
 
         self.write_bits(code, size)
     }
@@ -317,6 +314,7 @@ impl PixelDensity {
     /// Creates the most common pixel density type:
     /// the horizontal and the vertical density are equal,
     /// and measured in pixels per inch.
+    #[must_use]
     pub fn dpi(density: u16) -> Self {
         PixelDensity {
             density: (density, density),
@@ -400,13 +398,9 @@ impl<W: Write> JpegEncoder<W> {
 
         let mut tables = vec![STD_LUMA_QTABLE, STD_CHROMA_QTABLE];
         tables.iter_mut().for_each(|t| {
-            t.iter_mut().for_each(|v| {
-                *v = clamp(
-                    (u32::from(*v) * scale + 50) / 100,
-                    1,
-                    u32::from(u8::max_value()),
-                ) as u8;
-            })
+            for v in t.iter_mut() {
+                *v = clamp((u32::from(*v) * scale + 50) / 100, 1, u32::from(u8::MAX)) as u8;
+            }
         });
 
         JpegEncoder {
@@ -440,43 +434,37 @@ impl<W: Write> JpegEncoder<W> {
     /// # Panics
     ///
     /// Panics if `width * height * color_type.bytes_per_pixel() != image.len()`.
+    #[track_caller]
     pub fn encode(
         &mut self,
         image: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
+        let expected_buffer_len = color_type.buffer_size(width, height);
         assert_eq!(
-            (width as u64 * height as u64).saturating_mul(color_type.bytes_per_pixel() as u64),
-            image.len() as u64
+            expected_buffer_len,
+            image.len() as u64,
+            "Invalid buffer length: expected {expected_buffer_len} got {} for {width}x{height} image",
+            image.len(),
         );
 
         match color_type {
-            ColorType::L8 => {
+            ExtendedColorType::L8 => {
                 let image: ImageBuffer<Luma<_>, _> =
                     ImageBuffer::from_raw(width, height, image).unwrap();
                 self.encode_image(&image)
             }
-            ColorType::La8 => {
-                let image: ImageBuffer<LumaA<_>, _> =
-                    ImageBuffer::from_raw(width, height, image).unwrap();
-                self.encode_image(&image)
-            }
-            ColorType::Rgb8 => {
+            ExtendedColorType::Rgb8 => {
                 let image: ImageBuffer<Rgb<_>, _> =
-                    ImageBuffer::from_raw(width, height, image).unwrap();
-                self.encode_image(&image)
-            }
-            ColorType::Rgba8 => {
-                let image: ImageBuffer<Rgba<_>, _> =
                     ImageBuffer::from_raw(width, height, image).unwrap();
                 self.encode_image(&image)
             }
             _ => Err(ImageError::Unsupported(
                 UnsupportedError::from_format_and_kind(
                     ImageFormat::Jpeg.into(),
-                    UnsupportedErrorKind::Color(color_type.into()),
+                    UnsupportedErrorKind::Color(color_type),
                 ),
             )),
         }
@@ -574,7 +562,7 @@ impl<W: Write> JpegEncoder<W> {
         build_scan_header(&mut buf, &self.components[..num_components]);
         self.writer.write_segment(SOS, &buf)?;
 
-        if color_type.has_color() {
+        if ExtendedColorType::Rgb8 == color_type || ExtendedColorType::Rgba8 == color_type {
             self.encode_rgb(image)
         } else {
             self.encode_gray(image)
@@ -663,12 +651,13 @@ impl<W: Write> JpegEncoder<W> {
 }
 
 impl<W: Write> ImageEncoder for JpegEncoder<W> {
+    #[track_caller]
     fn write_image(
         mut self,
         buf: &[u8],
         width: u32,
         height: u32,
-        color_type: ColorType,
+        color_type: ExtendedColorType,
     ) -> ImageResult<()> {
         self.encode(buf, width, height, color_type)
     }
@@ -706,7 +695,7 @@ fn build_frame_header(
     m.extend_from_slice(&width.to_be_bytes());
     m.push(components.len() as u8);
 
-    for &comp in components.iter() {
+    for &comp in components {
         let hv = (comp.h << 4) | comp.v;
         m.extend_from_slice(&[comp.id, hv, comp.tq]);
     }
@@ -717,7 +706,7 @@ fn build_scan_header(m: &mut Vec<u8>, components: &[Component]) {
 
     m.push(components.len() as u8);
 
-    for &comp in components.iter() {
+    for &comp in components {
         let tables = (comp.dc_table << 4) | comp.ac_table;
         m.extend_from_slice(&[comp.id, tables]);
     }
@@ -850,10 +839,9 @@ mod tests {
     #[cfg(feature = "benchmarks")]
     use test::Bencher;
 
-    use crate::color::ColorType;
     use crate::error::ParameterErrorKind::DimensionMismatch;
     use crate::image::ImageDecoder;
-    use crate::{ImageEncoder, ImageError};
+    use crate::{ExtendedColorType, ImageEncoder, ImageError};
 
     use super::super::JpegDecoder;
     use super::{
@@ -882,7 +870,7 @@ mod tests {
         {
             let encoder = JpegEncoder::new_with_quality(&mut encoded_img, 100);
             encoder
-                .write_image(&img, 1, 1, ColorType::Rgb8)
+                .write_image(&img, 1, 1, ExtendedColorType::Rgb8)
                 .expect("Could not encode image");
         }
 
@@ -908,7 +896,7 @@ mod tests {
         {
             let encoder = JpegEncoder::new_with_quality(&mut encoded_img, 100);
             encoder
-                .write_image(&img[..], 2, 2, ColorType::L8)
+                .write_image(&img[..], 2, 2, ExtendedColorType::L8)
                 .expect("Could not encode image");
         }
 
@@ -958,7 +946,7 @@ mod tests {
         // Try to encode an image that is too large
         let mut encoded = Vec::new();
         let encoder = JpegEncoder::new_with_quality(&mut encoded, 100);
-        let result = encoder.write_image(&img, 65_536, 1, ColorType::L8);
+        let result = encoder.write_image(&img, 65_536, 1, ExtendedColorType::L8);
         match result {
             Err(ImageError::Parameter(err)) => {
                 assert_eq!(err.kind(), DimensionMismatch)

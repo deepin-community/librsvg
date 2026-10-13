@@ -10,10 +10,10 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-edition = "2018"
-rust-version = "1.56"
+edition = "2021"
+rust-version = "1.77"
 name = "yeslogic-fontconfig-sys"
-version = "4.0.1"
+version = "6.0.0"
 authors = [
     "Austin Bonander <austin.bonander@gmail.com>",
     "The Servo Project Developers",
@@ -36,9 +36,6 @@ repository = "https://github.com/yeslogic/fontconfig-rs"
 
 [lib]
 name = "fontconfig_sys"
-
-[dependencies.const-cstr]
-version = "0.3"
 
 [dependencies.dlib]
 version = "0.5.0"

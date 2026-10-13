@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::{IOStream, SocketConnection};
+use crate::{ffi, IOStream, SocketConnection};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -31,6 +31,7 @@ mod sealed {
 pub trait TcpConnectionExt: IsA<TcpConnection> + sealed::Sealed + 'static {
     #[doc(alias = "g_tcp_connection_get_graceful_disconnect")]
     #[doc(alias = "get_graceful_disconnect")]
+    #[doc(alias = "graceful-disconnect")]
     fn is_graceful_disconnect(&self) -> bool {
         unsafe {
             from_glib(ffi::g_tcp_connection_get_graceful_disconnect(
@@ -40,6 +41,7 @@ pub trait TcpConnectionExt: IsA<TcpConnection> + sealed::Sealed + 'static {
     }
 
     #[doc(alias = "g_tcp_connection_set_graceful_disconnect")]
+    #[doc(alias = "graceful-disconnect")]
     fn set_graceful_disconnect(&self, graceful_disconnect: bool) {
         unsafe {
             ffi::g_tcp_connection_set_graceful_disconnect(
@@ -67,7 +69,7 @@ pub trait TcpConnectionExt: IsA<TcpConnection> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::graceful-disconnect\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_graceful_disconnect_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

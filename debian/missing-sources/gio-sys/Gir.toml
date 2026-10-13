@@ -16,6 +16,20 @@ ignore = [
 ]
 
 [[object]]
+name = "Gio.*"
+status = "generate"
+    [[object.function]]
+    name = "unix_mount_entries_changed_since"
+    version = "2.84"
+
+[[object]]
+name = "Gio.Credentials"
+status = "generate"
+    [[object.function]]
+    pattern = "[gs]et_unix.*"
+    cfg_condition = "unix"
+
+[[object]]
 name = "Gio.SocketFamily"
 status = "manual"
 
@@ -48,17 +62,3 @@ status = "generate"
     [[object.function]]
     name = "close"
     cfg_condition = "unix"
-
-[[object]]
-name = "Gio.Resolver"
-status = "generate"
-    [[object.function]]
-    name = "records_from_res_query"
-    ignore = true
-
-[[object]]
-name = "Gio.ResolverRecordType"
-status = "generate"
-    [[object.function]]
-    name = "to_rrtype"
-    ignore = true

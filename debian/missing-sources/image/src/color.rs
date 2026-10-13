@@ -34,6 +34,7 @@ pub enum ColorType {
 
 impl ColorType {
     /// Returns the number of bytes contained in a pixel of `ColorType` ```c```
+    #[must_use]
     pub fn bytes_per_pixel(self) -> u8 {
         match self {
             ColorType::L8 => 1,
@@ -48,6 +49,7 @@ impl ColorType {
     }
 
     /// Returns if there is an alpha channel.
+    #[must_use]
     pub fn has_alpha(self) -> bool {
         use ColorType::*;
         match self {
@@ -57,6 +59,7 @@ impl ColorType {
     }
 
     /// Returns false if the color scheme is grayscale, true otherwise.
+    #[must_use]
     pub fn has_color(self) -> bool {
         use ColorType::*;
         match self {
@@ -67,11 +70,13 @@ impl ColorType {
 
     /// Returns the number of bits contained in a pixel of `ColorType` ```c``` (which will always be
     /// a multiple of 8).
+    #[must_use]
     pub fn bits_per_pixel(self) -> u16 {
         <u16 as From<u8>>::from(self.bytes_per_pixel()) * 8
     }
 
     /// Returns the number of color channels that make up this pixel
+    #[must_use]
     pub fn channel_count(self) -> u8 {
         let e: ExtendedColorType = self.into();
         e.channel_count()
@@ -156,6 +161,7 @@ impl ExtendedColorType {
     ///
     /// Note that the `Unknown` variant returns a value of `1` since pixels can only be treated as
     /// an opaque datum by the library.
+    #[must_use]
     pub fn channel_count(self) -> u8 {
         match self {
             ExtendedColorType::A8
@@ -187,6 +193,47 @@ impl ExtendedColorType {
             | ExtendedColorType::Cmyk8 => 4,
         }
     }
+
+    /// Returns the number of bits per pixel for this color type.
+    #[must_use]
+    pub fn bits_per_pixel(&self) -> u16 {
+        match *self {
+            ExtendedColorType::A8 => 8,
+            ExtendedColorType::L1 => 1,
+            ExtendedColorType::La1 => 2,
+            ExtendedColorType::Rgb1 => 3,
+            ExtendedColorType::Rgba1 => 4,
+            ExtendedColorType::L2 => 2,
+            ExtendedColorType::La2 => 4,
+            ExtendedColorType::Rgb2 => 6,
+            ExtendedColorType::Rgba2 => 8,
+            ExtendedColorType::L4 => 4,
+            ExtendedColorType::La4 => 8,
+            ExtendedColorType::Rgb4 => 12,
+            ExtendedColorType::Rgba4 => 16,
+            ExtendedColorType::L8 => 8,
+            ExtendedColorType::La8 => 16,
+            ExtendedColorType::Rgb8 => 24,
+            ExtendedColorType::Rgba8 => 32,
+            ExtendedColorType::L16 => 16,
+            ExtendedColorType::La16 => 32,
+            ExtendedColorType::Rgb16 => 48,
+            ExtendedColorType::Rgba16 => 64,
+            ExtendedColorType::Rgb32F => 96,
+            ExtendedColorType::Rgba32F => 128,
+            ExtendedColorType::Bgr8 => 24,
+            ExtendedColorType::Bgra8 => 32,
+            ExtendedColorType::Cmyk8 => 32,
+            ExtendedColorType::Unknown(bpp) => bpp as u16,
+        }
+    }
+
+    /// Returns the number of bytes required to hold a width x height image of this color type.
+    pub(crate) fn buffer_size(self, width: u32, height: u32) -> u64 {
+        let bpp = self.bits_per_pixel() as u64;
+        let row_pitch = (width as u64 * bpp + 7) / 8;
+        row_pitch.saturating_mul(height as u64)
+    }
 }
 impl From<ColorType> for ExtendedColorType {
     fn from(c: ColorType) -> Self {
@@ -216,7 +263,7 @@ $( // START Structure definitions
 
 $(#[$doc])*
 #[derive(PartialEq, Eq, Clone, Debug, Copy, Hash)]
-#[repr(C)]
+#[repr(transparent)]
 #[allow(missing_docs)]
 pub struct $ident<T> (pub [T; $channels]);
 
@@ -444,6 +491,7 @@ impl FromPrimitive<u8> for u16 {
 /// Provides color conversions for the different pixel types.
 pub trait FromColor<Other> {
     /// Changes `self` to represent `Other` in the color space of `Self`
+    #[allow(clippy::wrong_self_convention)]
     fn from_color(&mut self, _: &Other);
 }
 
@@ -452,6 +500,7 @@ pub trait FromColor<Other> {
 // rather than assuming sRGB.
 pub(crate) trait IntoColor<Other> {
     /// Constructs a pixel of the target type and converts this pixel into it.
+    #[allow(clippy::wrong_self_convention)]
     fn into_color(&self) -> Other;
 }
 
@@ -459,6 +508,7 @@ impl<O, S> IntoColor<O> for S
 where
     O: Pixel + FromColor<S>,
 {
+    #[allow(clippy::wrong_self_convention)]
     fn into_color(&self) -> O {
         // Note we cannot use Pixel::CHANNELS_COUNT here to directly construct
         // the pixel due to a current bug/limitation of consts.
@@ -498,7 +548,7 @@ where
     T: FromPrimitive<S>,
 {
     fn from_color(&mut self, other: &LumaA<S>) {
-        self.channels_mut()[0] = T::from_primitive(other.channels()[0])
+        self.channels_mut()[0] = T::from_primitive(other.channels()[0]);
     }
 }
 
@@ -721,13 +771,13 @@ impl<T: Primitive> Blend for LumaA<T> {
         *self = LumaA([
             NumCast::from(max_t * out_luma).unwrap(),
             NumCast::from(max_t * alpha_final).unwrap(),
-        ])
+        ]);
     }
 }
 
 impl<T: Primitive> Blend for Luma<T> {
     fn blend(&mut self, other: &Luma<T>) {
-        *self = *other
+        *self = *other;
     }
 }
 
@@ -791,13 +841,13 @@ impl<T: Primitive> Blend for Rgba<T> {
             NumCast::from(max_t * out_g).unwrap(),
             NumCast::from(max_t * out_b).unwrap(),
             NumCast::from(max_t * alpha_final).unwrap(),
-        ])
+        ]);
     }
 }
 
 impl<T: Primitive> Blend for Rgb<T> {
     fn blend(&mut self, other: &Rgb<T>) {
-        *self = *other
+        *self = *other;
     }
 }
 
@@ -812,7 +862,7 @@ impl<T: Primitive> Invert for LumaA<T> {
         let l = self.0;
         let max = T::DEFAULT_MAX_VALUE;
 
-        *self = LumaA([max - l[0], l[1]])
+        *self = LumaA([max - l[0], l[1]]);
     }
 }
 
@@ -823,7 +873,7 @@ impl<T: Primitive> Invert for Luma<T> {
         let max = T::DEFAULT_MAX_VALUE;
         let l1 = max - l[0];
 
-        *self = Luma([l1])
+        *self = Luma([l1]);
     }
 }
 
@@ -833,7 +883,7 @@ impl<T: Primitive> Invert for Rgba<T> {
 
         let max = T::DEFAULT_MAX_VALUE;
 
-        *self = Rgba([max - rgba[0], max - rgba[1], max - rgba[2], rgba[3]])
+        *self = Rgba([max - rgba[0], max - rgba[1], max - rgba[2], rgba[3]]);
     }
 }
 
@@ -847,7 +897,7 @@ impl<T: Primitive> Invert for Rgb<T> {
         let g1 = max - rgb[1];
         let b1 = max - rgb[2];
 
-        *self = Rgb([r1, g1, b1])
+        *self = Rgb([r1, g1, b1]);
     }
 }
 

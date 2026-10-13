@@ -2,7 +2,7 @@
 // from gir-files (https://github.com/gtk-rs/gir-files)
 // DO NOT EDIT
 
-use crate::Initable;
+use crate::{ffi, Initable};
 use glib::{
     prelude::*,
     signal::{connect_raw, SignalHandlerId},
@@ -31,6 +31,7 @@ mod sealed {
 pub trait DebugControllerExt: IsA<DebugController> + sealed::Sealed + 'static {
     #[doc(alias = "g_debug_controller_get_debug_enabled")]
     #[doc(alias = "get_debug_enabled")]
+    #[doc(alias = "debug-enabled")]
     fn is_debug_enabled(&self) -> bool {
         unsafe {
             from_glib(ffi::g_debug_controller_get_debug_enabled(
@@ -40,6 +41,7 @@ pub trait DebugControllerExt: IsA<DebugController> + sealed::Sealed + 'static {
     }
 
     #[doc(alias = "g_debug_controller_set_debug_enabled")]
+    #[doc(alias = "debug-enabled")]
     fn set_debug_enabled(&self, debug_enabled: bool) {
         unsafe {
             ffi::g_debug_controller_set_debug_enabled(
@@ -69,7 +71,7 @@ pub trait DebugControllerExt: IsA<DebugController> + sealed::Sealed + 'static {
             connect_raw(
                 self.as_ptr() as *mut _,
                 b"notify::debug-enabled\0".as_ptr() as *const _,
-                Some(std::mem::transmute::<_, unsafe extern "C" fn()>(
+                Some(std::mem::transmute::<*const (), unsafe extern "C" fn()>(
                     notify_debug_enabled_trampoline::<Self, F> as *const (),
                 )),
                 Box_::into_raw(f),

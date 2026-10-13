@@ -4,7 +4,7 @@
 use std::os::unix::io::RawFd;
 use std::{cell::RefCell, mem::transmute, num::NonZeroU32, time::Duration};
 
-use ffi::{self, gboolean, gpointer};
+use crate::ffi::{self, gboolean, gpointer};
 #[cfg(all(not(unix), docsrs))]
 use libc::c_int as RawFd;
 
@@ -53,7 +53,7 @@ impl FromGlib<u32> for SourceId {
 }
 
 // rustdoc-stripper-ignore-next
-/// Process identificator
+/// Process identifier
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[doc(alias = "GPid")]
 pub struct Pid(pub ffi::GPid);
@@ -1092,9 +1092,9 @@ where
         ffi::g_source_set_callback(
             source,
             Some(transmute::<
-                _,
+                *mut (),
                 unsafe extern "C" fn(ffi::gpointer) -> ffi::gboolean,
-            >(trampoline_child_watch::<F> as *const ())),
+            >(trampoline_child_watch::<F> as *mut ())),
             into_raw_child_watch(func),
             Some(destroy_closure_child_watch::<F>),
         );
@@ -1168,7 +1168,7 @@ where
         ffi::g_source_set_callback(
             source,
             Some(transmute::<
-                _,
+                *const (),
                 unsafe extern "C" fn(ffi::gpointer) -> ffi::gboolean,
             >(trampoline_unix_fd::<F> as *const ())),
             into_raw_unix_fd(func),

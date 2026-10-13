@@ -13,25 +13,25 @@
 //! automatically:
 //!
 //! * A name for the type.  For example, the `fill` property has a [`Fill`] type defined
-//! in this module.
+//!   in this module.
 //!
 //! * An initial value per the CSS or SVG specs, given through an implementation of the
-//! [`Default`] trait.
+//!   [`Default`] trait.
 //!
 //! * Whether the property's computed value inherits to child elements, given through an
-//! implementation of the [`Property`] trait and its
-//! [`inherits_automatically`][Property::inherits_automatically] method.
+//!   implementation of the [`Property`] trait and its
+//!   [`inherits_automatically`][Property::inherits_automatically] method.
 //!
 //! * A way to derive the CSS *computed value* for the property, given through an
-//! implementation of the [`Property`] trait and its [`compute`][Property::compute] method.
+//!   implementation of the [`Property`] trait and its [`compute`][Property::compute] method.
 //!
 //! * The actual underlying type.  For example, the [`make_property`] macro can generate a
-//! field-less enum for properties like the `clip-rule` property, which just has
-//! identifier-based values like `nonzero` and `evenodd`.  For general-purpose types like
-//! [`Length`], the macro can wrap them in a newtype like `struct`
-//! [`StrokeWidth`]`(`[`Length`]`)`.  For custom types, the macro call can be used just to
-//! define the initial/default value and whether the property inherits automatically; you
-//! should provide the other required trait implementations separately.
+//!   field-less enum for properties like the `clip-rule` property, which just has
+//!   identifier-based values like `nonzero` and `evenodd`.  For general-purpose types like
+//!   [`Length`], the macro can wrap them in a newtype like `struct`
+//!   [`StrokeWidth`]`(`[`Length`]`)`.  For custom types, the macro call can be used just to
+//!   define the initial/default value and whether the property inherits automatically; you
+//!   should provide the other required trait implementations separately.
 //!
 //! * An implementation of the [`Parse`] trait for the underlying type.
 use std::convert::TryInto;
@@ -250,6 +250,31 @@ make_property!(
     "table-cell" => TableCell,
     "table-caption" => TableCaption,
     "none" => None,
+);
+
+make_property!(
+    /// `dominant-baseline` property.
+    ///
+    /// SVG1.1: <https://www.w3.org/TR/SVG11/text.html#BaselineAlignmentProperties>
+    DominantBaseline,
+    default: Auto,
+    inherits_automatically: true,
+
+    identifiers:
+    "auto" => Auto,
+    "ideographic" => Ideographic,
+    "alphabetic" => Alphabetic,
+    "hanging" => Hanging,
+    "mathematical" => Mathematical,
+    "central" => Central,
+    "middle" => Middle,
+    "text-after-edge" => TextAfterEdge,
+    "text-before-edge" => TextBeforeEdge,
+    // CSS3
+    "text-top" => TextTop,
+    "text-bottom" => TextBottom,
+    // No longer supported in SVG2 (https://www.w3.org/TR/SVG2/text.html#DominantBaselineProperty):
+    // use-script, no-change and reset-size
 );
 
 /// `enable-background` property.
@@ -744,6 +769,12 @@ make_property!(
     "scroll" => Scroll,
     "auto" => Auto,
 );
+
+impl Overflow {
+    pub fn overflow_allowed(&self) -> bool {
+        matches!(*self, Overflow::Auto | Overflow::Visible)
+    }
+}
 
 /// One of the three operations for the `paint-order` property; see [`PaintOrder`].
 #[repr(u8)]
@@ -1349,4 +1380,22 @@ make_property!(
     default: Length::<Vertical>::parse_str("0").unwrap(),
     inherits_automatically: false,
     newtype_parse: Length<Vertical>,
+);
+
+make_property!(
+    /// `whitespace` properties
+    ///
+    /// https://www.w3.org/TR/css-text-3/#white-space-property
+    WhiteSpace,
+
+    default: Normal,
+    inherits_automatically: true,
+
+    identifiers:
+    "normal" => Normal,
+    "pre" => Pre,
+    "nowrap" => NoWrap,
+    "pre-wrap" => PreWrap,
+    "break-spaces" => BreakSpaces,
+    "pre-line" => PreLine,
 );

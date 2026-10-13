@@ -13,12 +13,17 @@
 edition = "2021"
 rust-version = "1.70"
 name = "pangocairo-sys"
-version = "0.19.0"
+version = "0.20.4"
 authors = ["The gtk-rs Project Developers"]
 build = "build.rs"
 exclude = ["gir-files/*"]
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
 description = "FFI bindings to PangoCairo"
 homepage = "https://gtk-rs.org/"
+readme = false
 keywords = [
     "gtk",
     "ffi",
@@ -46,18 +51,19 @@ version = "1.40"
 
 [lib]
 name = "pango_cairo_sys"
+path = "src/lib.rs"
 
 [dependencies.cairo-sys-rs]
-version = "0.19"
+version = "0.20"
 
 [dependencies.glib-sys]
-version = "0.19"
+version = "0.20"
 
 [dependencies.libc]
 version = "0.2"
 
 [dependencies.pango-sys]
-version = "0.19"
+version = "0.20"
 
 [dev-dependencies.shell-words]
 version = "1.0.0"
@@ -66,6 +72,6 @@ version = "1.0.0"
 version = "3"
 
 [build-dependencies.system-deps]
-version = "6"
+version = "7"
 
 [features]

@@ -3,7 +3,7 @@ use std::ops::{BitAnd, BitOr, BitXor, Not};
 
 /// Lane-wise generalization of `bool` for SIMD booleans.
 ///
-/// This trait implemented by `bool` as well as SIMD boolean types like `packed_simd::m32x4`.
+/// This trait implemented by `bool` as well as SIMD boolean types like `portable_simd::mask32x4`.
 /// It is designed to abstract the behavior of booleans so it can work with multi-lane boolean
 /// values in an AoSoA setting.
 pub trait SimdBool:

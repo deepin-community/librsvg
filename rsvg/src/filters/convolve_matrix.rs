@@ -1,6 +1,7 @@
 use cssparser::Parser;
 use markup5ever::{expanded_name, local_name, namespace_url, ns};
 use nalgebra::{DMatrix, Dyn, VecStorage};
+use xml5ever::QualName;
 
 use crate::bench_only::{
     EdgeMode, ExclusiveImageSurface, ImageSurfaceDataExt, Pixel, PixelRectangle, Pixels,
@@ -11,7 +12,7 @@ use crate::element::{set_attribute, ElementTrait};
 use crate::error::*;
 use crate::node::{CascadedValues, Node};
 use crate::parse_identifiers;
-use crate::parsers::{NumberList, NumberOptionalNumber, Parse, ParseValue};
+use crate::parsers::{CommaSeparatedList, NumberOptionalNumber, Parse, ParseValue};
 use crate::properties::ColorInterpolationFilters;
 use crate::rect::IRect;
 use crate::rsvg_log;
@@ -38,15 +39,37 @@ pub struct FeConvolveMatrix {
 pub struct ConvolveMatrix {
     in1: Input,
     order: NumberOptionalNumber<u32>,
-    kernel_matrix: NumberList<0, 400>, // #691: Limit list to 400 (20x20) to mitigate malicious SVGs
+    kernel_matrix: CommaSeparatedList<f64, 0, 400>, // #691: Limit list to 400 (20x20) to mitigate malicious SVGs
     divisor: f64,
     bias: f64,
     target_x: Option<u32>,
     target_y: Option<u32>,
     edge_mode: EdgeMode,
-    kernel_unit_length: Option<(f64, f64)>,
+    kernel_unit_length: KernelUnitLength,
     preserve_alpha: bool,
     color_interpolation_filters: ColorInterpolationFilters,
+}
+
+#[derive(Clone, Default)]
+pub struct KernelUnitLength(pub Option<(f64, f64)>);
+
+impl KernelUnitLength {
+    pub fn from_attribute(attr: &QualName, value: &str, session: &Session) -> Result<Self, ()> {
+        let v: Result<NumberOptionalNumber<f64>, _> = attr.parse(value);
+        match v {
+            Ok(NumberOptionalNumber(x, y)) if x > 0.0 && y > 0.0 => {
+                Ok(KernelUnitLength(Some((x, y))))
+            } // Only accept positive values
+            Ok(_) => {
+                rsvg_log!(session, "ignoring attribute with non-positive values");
+                Err(())
+            }
+            Err(e) => {
+                rsvg_log!(session, "ignoring attribute with invalid value: {}", e);
+                Err(())
+            }
+        }
+    }
 }
 
 impl Default for ConvolveMatrix {
@@ -56,7 +79,7 @@ impl Default for ConvolveMatrix {
         ConvolveMatrix {
             in1: Default::default(),
             order: NumberOptionalNumber(3, 3),
-            kernel_matrix: NumberList(Vec::new()),
+            kernel_matrix: CommaSeparatedList(Vec::new()),
             divisor: 0.0,
             bias: 0.0,
             target_x: None,
@@ -64,7 +87,7 @@ impl Default for ConvolveMatrix {
             // Note that per the spec, `edgeMode` has a different initial value
             // in feConvolveMatrix than feGaussianBlur.
             edge_mode: EdgeMode::Duplicate,
-            kernel_unit_length: None,
+            kernel_unit_length: KernelUnitLength::default(),
             preserve_alpha: false,
             color_interpolation_filters: Default::default(),
         }
@@ -99,16 +122,8 @@ impl ElementTrait for FeConvolveMatrix {
                     set_attribute(&mut self.params.edge_mode, attr.parse(value), session)
                 }
                 expanded_name!("", "kernelUnitLength") => {
-                    let v: Result<NumberOptionalNumber<f64>, _> = attr.parse(value);
-                    match v {
-                        Ok(NumberOptionalNumber(x, y)) => {
-                            self.params.kernel_unit_length = Some((x, y));
-                        }
-
-                        Err(e) => {
-                            rsvg_log!(session, "ignoring attribute with invalid value: {}", e);
-                        }
-                    }
+                    self.params.kernel_unit_length =
+                        KernelUnitLength::from_attribute(&attr, value, session).unwrap_or_default();
                 }
                 expanded_name!("", "preserveAlpha") => {
                     set_attribute(&mut self.params.preserve_alpha, attr.parse(value), session);
@@ -172,13 +187,7 @@ impl ConvolveMatrix {
 
         let scale = self
             .kernel_unit_length
-            .and_then(|(x, y)| {
-                if x <= 0.0 || y <= 0.0 {
-                    None
-                } else {
-                    Some((x, y))
-                }
-            })
+            .0
             .map(|(dx, dy)| ctx.paffine().transform_distance(dx, dy));
 
         if let Some((ox, oy)) = scale {

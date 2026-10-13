@@ -1,7 +1,7 @@
 // Take a look at the license at the top of the repository in the LICENSE file.
 
 // rustdoc-stripper-ignore-next
-//! Traits intended for subclassing [`PixbufAnimation`](crate::PixbufAnimation).
+//! Traits intended for subclassing [`PixbufAnimation`].
 
 use std::{
     mem::MaybeUninit,
@@ -11,7 +11,7 @@ use std::{
 
 use glib::{prelude::*, subclass::prelude::*, translate::*};
 
-use crate::{Pixbuf, PixbufAnimation, PixbufAnimationIter};
+use crate::{ffi, Pixbuf, PixbufAnimation, PixbufAnimationIter};
 
 pub trait PixbufAnimationImpl: ObjectImpl {
     fn is_static_image(&self) -> bool {

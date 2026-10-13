@@ -5,7 +5,7 @@ use std::{ffi::OsString, fmt, ops::Deref, ptr};
 use glib::{prelude::*, subclass::prelude::*, translate::*, ExitCode, VariantDict};
 use libc::{c_char, c_int, c_void};
 
-use crate::Application;
+use crate::{ffi, Application};
 
 pub struct ArgumentList {
     pub(crate) ptr: *mut *mut *mut c_char,
@@ -33,7 +33,7 @@ impl ArgumentList {
 
             self.items.remove(idx);
 
-            glib::ffi::g_free((*self.ptr).add(idx) as *mut c_void);
+            glib::ffi::g_free(*(*self.ptr).add(idx) as *mut c_void);
 
             for i in idx..n_args - 1 {
                 ptr::write((*self.ptr).add(i), *(*self.ptr).add(i + 1))
@@ -416,15 +416,17 @@ mod tests {
         impl ObjectImpl for SimpleApplication {}
 
         impl ApplicationImpl for SimpleApplication {
-            fn command_line(&self, cmd_line: &crate::ApplicationCommandLine) -> ExitCode {
-                let arguments = cmd_line.arguments();
+            fn command_line(&self, _cmd_line: &crate::ApplicationCommandLine) -> ExitCode {
+                #[cfg(not(target_os = "windows"))]
+                {
+                    let arguments = _cmd_line.arguments();
 
-                for arg in arguments {
-                    // TODO: we need https://github.com/rust-lang/rust/issues/49802
-                    let a = arg.to_str().unwrap();
-                    assert!(!a.starts_with("--local-"))
-                }
-
+                    // NOTE: on windows argc and argv are ignored, even if the arguments
+                    // were passed explicitly.
+                    //
+                    // Source: https://gitlab.gnome.org/GNOME/glib/-/blob/e64a93269d09302d7a4facbc164b7fe9c2ad0836/gio/gapplication.c#L2513-2515
+                    assert_eq!(arguments.to_vec(), &["--global-1", "--global-2"]);
+                };
                 EXIT_STATUS.into()
             }
 
@@ -464,6 +466,9 @@ mod tests {
 
         app.set_inactivity_timeout(10000);
 
-        assert_eq!(app.run_with_args(&["--local"]), EXIT_STATUS.into());
+        assert_eq!(
+            app.run_with_args(&["--local-1", "--global-1", "--local-2", "--global-2"]),
+            EXIT_STATUS.into()
+        );
     }
 }

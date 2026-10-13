@@ -1,8 +1,8 @@
 //! Traits implemented by SIMD types and non-SIMD types.
 
 pub use self::auto_simd_impl::*;
-#[cfg(feature = "packed_simd")]
-pub use self::packed_simd_impl::*;
+#[cfg(feature = "portable_simd")]
+pub use self::portable_simd_impl::*;
 pub use self::simd_bool::SimdBool;
 pub use self::simd_complex::SimdComplexField;
 pub use self::simd_option::SimdOption;
@@ -16,8 +16,8 @@ pub use self::wide_simd_impl::{
 };
 
 mod auto_simd_impl;
-#[cfg(feature = "packed_simd")]
-mod packed_simd_impl;
+#[cfg(feature = "portable_simd")]
+mod portable_simd_impl;
 #[cfg(feature = "rand")]
 mod rand_impl;
 mod simd_bool;
